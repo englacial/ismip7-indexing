@@ -79,6 +79,29 @@ uv run pytest                                                             # incl
 `tests/data/ismip_keys_2026-10-31.txt.gz` is the listing the models were
 derived from; `tests/test_full_listing.py` asserts the conventions hold on it.
 
+## Reading the stores
+
+The stores hold virtual references into the public `ismip` bucket. Icechunk
+only follows them when the reader authorizes the virtual chunk container,
+and the key must be exactly the container prefix, trailing slash included:
+
+```python
+import icechunk, xarray as xr
+
+storage = icechunk.s3_storage(
+    bucket="us-west-2.opendata.source.coop", prefix="englacial/ismip7/icechunk-ais",
+    region="us-west-2", anonymous=True,
+)
+repo = icechunk.Repository.open(
+    storage,
+    authorize_virtual_chunk_access={
+        "s3://us-west-2.opendata.source.coop/ismip/": icechunk.s3_anonymous_credentials()
+    },
+)
+ds = xr.open_zarr(repo.readonly_session("main").store,
+                  group="CESM2-WACCM/historical/SDBN1-8000m", consolidated=False)
+```
+
 ## References
 
 - ISMIP7 protocol: https://www.ismip.org/research/ismip7 (links the cheat sheet,

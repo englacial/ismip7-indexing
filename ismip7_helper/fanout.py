@@ -11,10 +11,15 @@ Usage::
     ismip7-fanout --index index.parquet --region AIS --groups CESM2-WACCM/historical/SDBN1-8000m \\
         --target local:/tmp/icechunk-ais --local --report run.json
 
-Each group is one event (see ``lambda_handler``). Results are collected
-into a JSON report (a list of ``GroupRun`` dicts). Groups that already exist
-in the repository are skipped unless ``--overwrite``. A failed group can be
-re-run by passing its path to ``--groups``.
+Each group is one event (see ``lambda_handler``). Before any worker runs,
+the fan-out creates the repository if needed and every parent group of the
+selected groups in one commit (``store.ensure_hierarchy``), so concurrent
+workers only add leaf groups; this needs the write credentials here too
+(``--write-creds``). Results are collected into a JSON report (a list of
+``GroupRun`` dicts), rewritten as each group finishes. Existing groups are
+skipped only when they were built from the same files (sources digest) and,
+with ``--verify``, passed verification; otherwise they are rewritten. A
+failed group is re-run by running again.
 """
 
 from __future__ import annotations
@@ -25,12 +30,20 @@ import logging
 import sys
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 from .conventions import ForcingFile
-from .pipeline import load_groups
-from .store import StoreTarget, existing_groups, load_sc_creds, open_repository
+from .pipeline import GroupRun, load_groups, plan_groups, report_writer
+from .store import (
+    StoreTarget,
+    check_target_region,
+    ensure_hierarchy,
+    existing_groups,
+    load_sc_creds,
+    open_repository,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +56,9 @@ def make_event(
     region: str = "us-west-2",
     overwrite: bool = False,
     verify: int = 0,
+    reason: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    ev = {
         "group_path": group_path,
         "keys": [[f.key, f.size] for f in sorted(files, key=lambda f: f.key)],
         "target": target,
@@ -52,6 +66,9 @@ def make_event(
         "overwrite": overwrite,
         "verify": verify,
     }
+    if reason:
+        ev["reason"] = reason
+    return ev
 
 
 def lambda_invoker(function_name: str, region: str = "us-west-2") -> Callable[[dict], dict]:
@@ -131,14 +148,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--region", required=True, choices=["AIS", "GrIS"])
     ap.add_argument("--groups", nargs="*", default=None, help="glob(s) on group paths")
     ap.add_argument("--target", help="local:/path or s3://bucket/prefix (default: production repo)")
-    ap.add_argument("--write-creds", help="sc_creds.json, used here only to list existing groups")
+    ap.add_argument(
+        "--write-creds",
+        help="sc_creds.json for S3 targets: the fan-out creates the repository and parent "
+        "groups and lists existing groups (workers use their own configured secret)",
+    )
     ap.add_argument("--function", help="Lambda function name (omit with --local)")
     ap.add_argument("--aws-region", default="us-west-2")
     ap.add_argument("--local", action="store_true", help="run the handler in this process")
     ap.add_argument("--concurrency", type=int, default=20)
     ap.add_argument("--overwrite", action="store_true")
     ap.add_argument("--verify", type=int, default=0, metavar="N")
-    ap.add_argument("--max-groups", type=int)
+    ap.add_argument("--max-groups", type=int, help="write at most N groups (after skipping)")
     ap.add_argument("--dry-run", action="store_true", help="print the events and exit")
     ap.add_argument("--report", help="JSON report path")
     ap.add_argument("-v", "--verbose", action="store_true")
@@ -146,25 +167,41 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING)
 
     target = args.target or StoreTarget.region_default(args.region).url
+    try:
+        check_target_region(target, args.region)
+    except ValueError as e:
+        ap.error(str(e))
     groups = load_groups(args.index, region=args.region, patterns=args.groups)
-    if args.max_groups:
-        groups = dict(list(groups.items())[: args.max_groups])
 
-    if not args.dry_run and not args.overwrite:
+    skipped: list[dict[str, Any]] = []
+    if args.dry_run:  # no repository access: every selected group, as an event
+        if args.max_groups:
+            groups = dict(list(groups.items())[: args.max_groups])
+        plan_write = {g: (f, args.overwrite, "dry-run") for g, f in groups.items()}
+    else:
+        if not args.local and not args.function:
+            ap.error("--function is required unless --local")
         st = StoreTarget.parse(target)
         if args.write_creds and not st.is_local:
             st = StoreTarget(
                 url=st.url, region=st.region, credentials=load_sc_creds(args.write_creds)
             )
-        try:
-            done = existing_groups(open_repository(st, readonly=True))
-        except Exception as e:  # repository does not exist yet
-            logger.info("no existing repository (%s)", e)
-            done = set()
-        skipped = [g for g in groups if g in done]
-        groups = {g: f for g, f in groups.items() if g not in done}
-        if skipped:
-            print(f"skipping {len(skipped)} existing groups", file=sys.stderr)
+        repo = open_repository(st, create=True)
+        plan = plan_groups(
+            groups,
+            existing_groups(repo),
+            verify=args.verify,
+            overwrite=args.overwrite,
+            max_groups=args.max_groups,
+        )
+        if plan.skip:
+            print(f"skipping {len(plan.skip)} existing groups", file=sys.stderr)
+        skipped = [
+            asdict(GroupRun(g, "skipped", len(f), 0.0, reason=reason))
+            for g, (f, reason) in plan.skip.items()
+        ]
+        ensure_hierarchy(repo, list(plan.write), region=args.region)
+        plan_write = plan.write
 
     events = [
         make_event(
@@ -172,10 +209,11 @@ def main(argv: list[str] | None = None) -> int:
             f,
             target=target,
             region=args.aws_region,
-            overwrite=args.overwrite,
+            overwrite=ow,
             verify=args.verify,
+            reason=None if reason in ("new", "dry-run") else reason,
         )
-        for g, f in groups.items()
+        for g, (f, ow, reason) in plan_write.items()
     ]
     print(f"{len(events)} groups, {sum(len(e['keys']) for e in events)} files", file=sys.stderr)
     if args.dry_run:
@@ -186,19 +224,24 @@ def main(argv: list[str] | None = None) -> int:
         invoke = local_invoker()
         concurrency = 1  # the handler already uses a process pool
     else:
-        if not args.function:
-            ap.error("--function is required unless --local")
         invoke = lambda_invoker(args.function, args.aws_region)
         concurrency = args.concurrency
 
-    def report_line(r: dict) -> None:
+    write_report = report_writer(args.report)
+    for r in skipped:
+        write_report(r)
+
+    def on_result(r: dict) -> None:
         print(
-            f"{r['status']:8s} {r['group_path']} {r.get('n_files')} files {r.get('seconds')}s {r.get('error') or ''}",
+            f"{r['status']:8s} {r['group_path']} {r.get('n_files')} files {r.get('seconds')}s "
+            f"{r.get('error') or ''}",
             file=sys.stderr,
         )
+        write_report(r)
 
-    results = run_many(events, invoke, concurrency=concurrency, on_result=report_line)
-    if args.report:
+    results = run_many(events, invoke, concurrency=concurrency, on_result=on_result)
+    results = sorted(skipped + results, key=lambda r: r["group_path"])
+    if args.report:  # final, sorted
         Path(args.report).write_text(json.dumps(results, indent=1))
     failed = [r for r in results if r["status"] == "failed"]
     print(f"{len(results)} groups: {len(failed)} failed", file=sys.stderr)

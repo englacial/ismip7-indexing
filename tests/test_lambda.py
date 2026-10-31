@@ -10,7 +10,13 @@ from ismip7_helper.conventions import parse_key
 from ismip7_helper.fanout import main as fanout_main
 from ismip7_helper.fanout import make_event, run_many
 from ismip7_helper.lambda_handler import run_event, workers
-from ismip7_helper.store import StoreTarget, existing_groups, open_repository
+from ismip7_helper.store import (
+    VERIFIED_ATTR,
+    StoreTarget,
+    ensure_hierarchy,
+    existing_groups,
+    open_repository,
+)
 from tests.conftest import AIS_KEY_FMT, write_forcing_file
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
@@ -40,21 +46,87 @@ def _event(root, tmp_path, keys, urls, **kw):
     return ev
 
 
+def _prepare(ev):
+    """What the fan-out does before invoking workers: create the repo and the parents."""
+    target = StoreTarget.parse(ev["target"], local_containers=ev["local_containers"])
+    repo = open_repository(target, create=True)
+    ensure_hierarchy(repo, [ev["group_path"]])
+    return repo
+
+
 def test_run_event_writes_and_verifies(synthetic_root, tmp_path, monkeypatch):
     monkeypatch.setenv("ISMIP7_WORKERS", "2")
     keys, urls = _make_group(synthetic_root)
     ev = _event(synthetic_root, tmp_path, keys, urls, verify=1)
+    _prepare(ev)
     out = run_event(ev)
     assert out["status"] == "verified" and out["n_files"] == 4 and out["nrefs"] == 48
     assert out["verify_mismatches"] == [] and out["error"] is None
+    assert out["committed"] and not out["deleted"] and out["sources_sha256"]
     assert json.dumps(out)  # serialisable, as a Lambda return must be
     repo = open_repository(StoreTarget.parse(ev["target"]), readonly=True)
-    assert existing_groups(repo) == {"CESM2-WACCM/historical/SDBN1-32000m"}
+    found = existing_groups(repo)
+    assert list(found) == ["CESM2-WACCM/historical/SDBN1-32000m"]
+    assert found["CESM2-WACCM/historical/SDBN1-32000m"][VERIFIED_ATTR] == out["snapshot_id"]
+
+
+def test_run_event_deletes_a_group_that_fails_verification(synthetic_root, tmp_path, monkeypatch):
+    import ismip7_helper.store as store
+
+    monkeypatch.setenv("ISMIP7_WORKERS", "1")
+    keys, urls = _make_group(synthetic_root)
+    ev = _event(synthetic_root, tmp_path, keys, urls, verify=1)
+    repo = _prepare(ev)
+    wrong = write_forcing_file(synthetic_root / "wrong.nc", year=1850, seed=77)
+    real_open = store.open_source
+    monkeypatch.setattr(store, "open_source", lambda url: real_open(f"file://{wrong}"))
+    out = run_event(ev)
+    assert out["status"] == "failed" and out["error"] == "verification mismatches"
+    assert out["committed"] and out["deleted"] and out["verify_mismatches"]
+    assert existing_groups(repo) == {}
+    monkeypatch.setattr(store, "open_source", real_open)
+    assert run_event(ev)["status"] == "verified"  # a re-run redoes it
+
+
+def test_run_event_needs_an_existing_repo(synthetic_root, tmp_path):
+    keys, urls = _make_group(synthetic_root)
+    out = run_event(_event(synthetic_root, tmp_path, keys, urls))
+    assert out["status"] == "failed" and "RepositoryNotFoundError" in out["error"]
+    assert not (tmp_path / "repo").exists()  # the handler never creates
+
+
+def test_run_event_refuses_s3_without_write_credentials(monkeypatch):
+    monkeypatch.delenv("ISMIP7_WRITE_CREDS_JSON", raising=False)
+    monkeypatch.delenv("ISMIP7_WRITE_CREDS_SECRET", raising=False)
+    key = AIS_KEY_FMT.format(
+        var="acabf", year=1850, esm="CESM2-WACCM", exp="historical", product="SDBN1-32000m", ver=2
+    )
+    ev = {
+        "group_path": "CESM2-WACCM/historical/SDBN1-32000m",
+        "keys": [[key, 1]],
+        "target": "s3://bucket/englacial/ismip7/icechunk-ais",
+    }
+    out = run_event(ev)
+    assert out["status"] == "failed" and "no write credentials" in out["error"]
+    monkeypatch.setenv(
+        "ISMIP7_WRITE_CREDS_JSON",
+        '{"Credentials": {"AccessKeyId": "AK", "SecretAccessKey": "SK",'
+        ' "Expiration": "2026-11-01T00:00:00Z"}}',
+    )
+    from ismip7_helper.lambda_handler import SecretCredentials, target_from_event
+
+    t = target_from_event(ev)
+    assert t.credentials["expires_after"].year == 2026 and "SK" not in repr(t)
+    monkeypatch.delenv("ISMIP7_WRITE_CREDS_JSON")
+    monkeypatch.setenv("ISMIP7_WRITE_CREDS_SECRET", "ismip7/sc_creds")
+    t = target_from_event(ev)
+    assert isinstance(t.get_credentials, SecretCredentials)
 
 
 def test_run_event_reports_failure_instead_of_raising(synthetic_root, tmp_path):
     keys, urls = _make_group(synthetic_root, years=(1850, 1852))  # gap
     ev = _event(synthetic_root, tmp_path, keys, urls)
+    _prepare(ev)
     out = run_event(ev)
     assert out["status"] == "failed" and "VirtualizeError" in out["error"]
     ev["keys"] = [["ismip/ismip7-ais-forcing/data/junk.nc", 1]]
@@ -69,6 +141,7 @@ def test_run_event_refuses_existing_group_without_overwrite(synthetic_root, tmp_
     monkeypatch.setenv("ISMIP7_WORKERS", "1")
     keys, urls = _make_group(synthetic_root)
     ev = _event(synthetic_root, tmp_path, keys, urls)
+    _prepare(ev)
     assert run_event(ev)["status"] == "written"
     again = run_event(ev)
     assert again["status"] == "failed" and "ContainsGroupError" in again["error"]
@@ -147,20 +220,68 @@ def test_fanout_local_cli(synthetic_root, tmp_path, monkeypatch):
         "CESM2-WACCM/historical/SDBN1-32000m": "verified",
         "CESM2-WACCM/ssp585/SDBN1-32000m": "verified",
     }
-    # second run skips both
-    rc = fanout_main(
-        [
-            "--index",
-            str(index),
-            "--region",
-            "AIS",
-            "--target",
-            f"local:{tmp_path / 'repo'}",
-            "--local",
-            "--dry-run",
-        ]
+
+    # second run, for real (no --dry-run): both are verified and current, so both skip
+    def run_again(*extra):
+        rc = fanout_main(
+            [
+                "--index",
+                str(index),
+                "--region",
+                "AIS",
+                "--target",
+                f"local:{tmp_path / 'repo'}",
+                "--local",
+                "--report",
+                str(report),
+                *extra,
+            ]
+        )
+        return rc, {
+            r["group_path"]: (r["status"], r.get("reason")) for r in json.loads(report.read_text())
+        }
+
+    n_commits = len(
+        list(
+            open_repository(StoreTarget.parse(f"local:{tmp_path / 'repo'}")).ancestry(branch="main")
+        )
     )
-    assert rc == 0
+    rc, got = run_again("--verify", "1")
+    assert rc == 0 and got == {
+        "CESM2-WACCM/historical/SDBN1-32000m": ("skipped", "verified"),
+        "CESM2-WACCM/ssp585/SDBN1-32000m": ("skipped", "verified"),
+    }
+    repo = open_repository(StoreTarget.parse(f"local:{tmp_path / 'repo'}"))
+    assert len(list(repo.ancestry(branch="main"))) == n_commits  # nothing written
+
+    # a republished file (new size in the index) makes its group stale: it is rewritten
+    build_index([(k, 2000 if k == keys2[0] else 1000) for k in keys + keys2]).to_parquet(
+        index, index=False
+    )
+    rc, got = run_again("--verify", "1")
+    assert rc == 0 and got == {
+        "CESM2-WACCM/historical/SDBN1-32000m": ("skipped", "verified"),
+        "CESM2-WACCM/ssp585/SDBN1-32000m": ("verified", "sources changed"),
+    }
+
+
+def test_fanout_refuses_the_other_regions_repo(tmp_path):
+    from ismip7_helper.index import build_index
+
+    index = tmp_path / "index.parquet"
+    build_index([]).to_parquet(index, index=False)
+    with pytest.raises(SystemExit):
+        fanout_main(
+            [
+                "--index",
+                str(index),
+                "--region",
+                "GrIS",
+                "--target",
+                "s3://b/x/icechunk-ais",
+                "--dry-run",
+            ]
+        )
 
 
 def test_fanout_dry_run_prints_events(tmp_path, capsys):

@@ -33,6 +33,7 @@ import logging
 import os
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from itertools import pairwise
 
 import numpy as np
@@ -474,6 +475,11 @@ class GroupResult:
     ds: xr.Dataset
     n_files: int
     notes: list[str]
+    #: ``(key, size)`` of every source file, for the store's sources digest.
+    sources: list[tuple[str, int | None]] = field(default_factory=list)
+    #: When the headers were read (UTC, taken before opening the files); the
+    #: store stamps the virtual references with it.
+    opened_at: datetime | None = None
 
 
 def _uniform_or_list(pairs: list[tuple[str, str]]) -> str | list[str]:
@@ -550,6 +556,7 @@ def concat_group(
     opened: Iterable[OpenedFile] | None = None,
     max_workers: int = 1,
     use_processes: bool = False,
+    opened_at: datetime | None = None,
 ) -> GroupResult:
     """Concatenate one group's files along time and merge its variables.
 
@@ -567,7 +574,12 @@ def concat_group(
 
     Group attributes record the source time encodings and file versions: a
     single value when uniform, else a list of ``"<file or variable>: <value>"``.
+
+    ``GroupResult.opened_at`` is the time just before the files were opened
+    (or ``opened_at`` when ``opened`` was read earlier by the caller).
     """
+    if opened_at is None and opened is None:
+        opened_at = datetime.now(UTC)
     files = list(files)
     if not files:
         raise VirtualizeError("no files")
@@ -582,10 +594,15 @@ def concat_group(
             return open_forcing_file(f.key, registry, url=(urls or {}).get(f.key), size=f.size)
 
         if max_workers > 1 and use_processes:
+            import multiprocessing
             from concurrent.futures import ProcessPoolExecutor
 
-            # processes cannot share the registry object; each builds its own
-            with ProcessPoolExecutor(max_workers=max_workers) as pool:
+            # processes cannot share the registry object; each builds its own.
+            # forkserver, not fork: the caller may already run icechunk/obstore
+            # runtime threads (a warm Lambda, an opened repository), and a
+            # forked child of a threaded process can deadlock.
+            ctx = multiprocessing.get_context("forkserver")
+            with ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx) as pool:
                 opened = list(
                     pool.map(
                         _open_in_process, [(f.key, f.size, (urls or {}).get(f.key)) for f in files]
@@ -659,7 +676,14 @@ def concat_group(
             )
             # per-file values live in the group attrs; the merged axis has no one source
             merged["time"].attrs.pop(name, None)
-    return GroupResult(group_path=group_path, ds=merged, n_files=len(opened), notes=notes)
+    return GroupResult(
+        group_path=group_path,
+        ds=merged,
+        n_files=len(opened),
+        notes=notes,
+        sources=sorted(((f.key, f.size) for f in files), key=lambda p: p[0]),
+        opened_at=opened_at,
+    )
 
 
 def _open_in_process(args: tuple[str, int | None, str | None]) -> OpenedFile:

@@ -14,7 +14,11 @@ Usage::
         --write-creds sc_creds.json
 
 Groups are processed one after another here; Phase C fans the same
-``run_group`` out over Lambda.
+``commit_group`` out over Lambda. The runner creates the repository and the
+parent groups first (``store.ensure_hierarchy``). An existing group is
+skipped only when its sources digest matches the index and, with
+``--verify``, it passed verification; otherwise it is rewritten. A group
+that fails verification is deleted again, so a re-run redoes it.
 """
 
 from __future__ import annotations
@@ -25,20 +29,28 @@ import json
 import logging
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from .conventions import ForcingFile, ForcingKind, parse_key
 from .store import (
+    SOURCES_ATTR,
+    VERIFIED_ATTR,
     StoreTarget,
+    check_target_region,
+    delete_group,
+    ensure_hierarchy,
     existing_groups,
     load_sc_creds,
+    mark_verified,
     open_repository,
+    sources_sha256,
     verify_group,
     write_group,
 )
-from .virtualize import VirtualizeError, concat_group, source_registry
+from .virtualize import GroupResult, concat_group, source_registry
 
 logger = logging.getLogger(__name__)
 
@@ -60,26 +72,127 @@ def load_groups(
     df = df[df["kind"].isin([k.value for k in GROUPABLE_KINDS])]
     groups: dict[str, list[ForcingFile]] = {}
     for key, size, gp in zip(df["key"], df["size"], df["group_path"], strict=True):
-        if gp is None:
+        if gp is None or pd.isna(gp):
             continue
         if patterns and not any(fnmatch.fnmatchcase(gp, p) for p in patterns):
             continue
-        res = parse_key(key, None if size is None or size != size else int(size))
+        res = parse_key(key, None if pd.isna(size) else int(size))
         if res.forcing is not None:
             groups.setdefault(gp, []).append(res.forcing)
     return dict(sorted(groups.items()))
 
 
+def group_digest(files: list[ForcingFile]) -> str:
+    """The sources digest of an index group (matches the stored ``ismip7_sources_sha256``)."""
+    return sources_sha256((f.key, f.size) for f in files)
+
+
 @dataclass
 class GroupRun:
     group_path: str
-    status: str  # written | skipped | failed | verified | dry-run
+    status: str  # written | verified | skipped | failed | dry-run
     n_files: int
     seconds: float
     snapshot_id: str | None = None
     nrefs: int | None = None
     error: str | None = None
     verify_mismatches: list[str] | None = None
+    #: the group's write commit landed (it may since have been deleted)
+    committed: bool = False
+    #: the group was deleted again after failing verification
+    deleted: bool = False
+    sources_sha256: str | None = None
+    #: why an existing group was rewritten, or why it was skipped
+    reason: str | None = None
+
+
+@dataclass
+class Plan:
+    """What a runner does with each selected group."""
+
+    write: dict[str, tuple[list[ForcingFile], bool, str]]  # path -> (files, overwrite, reason)
+    skip: dict[str, tuple[list[ForcingFile], str]]  # path -> (files, reason)
+
+
+def plan_groups(
+    groups: dict[str, list[ForcingFile]],
+    existing: dict[str, dict[str, Any]],
+    *,
+    verify: int = 0,
+    overwrite: bool = False,
+    max_groups: int | None = None,
+) -> Plan:
+    """Decide per group: write new, rewrite an existing one, or skip it.
+
+    An existing group is skipped only if its ``ismip7_sources_sha256`` equals
+    the digest of the index files and, when verifying, it carries
+    ``ismip7_verified`` (a group written without verification is re-done by
+    a verifying run). Otherwise it is rewritten (``overwrite``), with the
+    reason recorded. ``max_groups`` caps the groups to write, after skipping.
+    """
+    write: dict[str, tuple[list[ForcingFile], bool, str]] = {}
+    skip: dict[str, tuple[list[ForcingFile], str]] = {}
+    for gp, files in groups.items():
+        attrs = existing.get(gp)
+        if attrs is None:
+            write[gp] = (files, overwrite, "new")
+        elif overwrite:
+            write[gp] = (files, True, "--overwrite")
+        elif attrs.get(SOURCES_ATTR) != group_digest(files):
+            write[gp] = (files, True, "sources changed" if attrs.get(SOURCES_ATTR) else "no digest")
+        elif verify and not attrs.get(VERIFIED_ATTR):
+            write[gp] = (files, True, "not verified")
+        else:
+            skip[gp] = (files, "verified" if attrs.get(VERIFIED_ATTR) else "exists")
+    if max_groups:
+        write = dict(list(write.items())[:max_groups])
+    return Plan(write, skip)
+
+
+def commit_group(
+    repo: Any,
+    result: GroupResult,
+    *,
+    overwrite: bool = False,
+    verify_files: int = 0,
+    branch: str = "main",
+) -> GroupRun:
+    """Write a concatenated group, then (with ``verify_files``) verify it.
+
+    Verification reads the snapshot just written. On success a follow-up
+    commit sets ``ismip7_verified``; on failure the group is deleted again,
+    so the store never carries a group known to be bad. Exceptions from the
+    write propagate; any after it are recorded on the returned run (with
+    ``committed=True``).
+    """
+    wr = write_group(repo, result, overwrite=overwrite, branch=branch)
+    run = GroupRun(
+        result.group_path,
+        "written",
+        wr.n_files,
+        0.0,
+        wr.snapshot_id,
+        wr.nrefs,
+        committed=True,
+        sources_sha256=wr.sources_sha256,
+    )
+    if not verify_files:
+        return run
+    try:
+        vr = verify_group(repo, result, n_files=verify_files, snapshot_id=wr.snapshot_id)
+        run.verify_mismatches = vr.mismatches
+        if vr.ok:
+            mark_verified(repo, result.group_path, wr.snapshot_id, branch=branch)
+            run.status = "verified"
+        else:
+            run.status, run.error = "failed", "verification mismatches"
+            delete_group(repo, result.group_path, branch=branch, reason="failed verification")
+            run.deleted = True
+    except Exception as e:
+        logger.exception("%s: verification step failed", result.group_path)
+        run.status = "failed"
+        run.error = f"{type(e).__name__}: {e}"
+    return run
 
 
 def run_group(
@@ -91,24 +204,35 @@ def run_group(
     overwrite: bool = False,
     verify_files: int = 0,
 ) -> GroupRun:
+    """Concatenate, write and optionally verify one group; never raises."""
     t0 = time.time()
     try:
         result = concat_group(files, registry or source_registry())
         for n in result.notes:
             logger.info("%s: %s", group_path, n)
-        wr = write_group(repo, result, overwrite=overwrite)
-        run = GroupRun(group_path, "written", wr.n_files, 0.0, wr.snapshot_id, wr.nrefs)
-        if verify_files:
-            vr = verify_group(repo, result, n_files=verify_files)
-            run.verify_mismatches = vr.mismatches
-            run.status = "verified" if vr.ok else "failed"
-            if not vr.ok:
-                run.error = "verification mismatches"
-    except (VirtualizeError, ValueError) as e:
-        logger.error("%s failed: %s", group_path, e)
-        run = GroupRun(group_path, "failed", len(files), 0.0, error=str(e))
+        run = commit_group(repo, result, overwrite=overwrite, verify_files=verify_files)
+    except Exception as e:  # one bad group must not abort the run or lose the report
+        logger.error("%s failed: %s: %s", group_path, type(e).__name__, e)
+        run = GroupRun(group_path, "failed", len(files), 0.0, error=f"{type(e).__name__}: {e}")
     run.seconds = round(time.time() - t0, 1)
     return run
+
+
+def report_writer(path: str | Path | None) -> Callable[[dict[str, Any]], None]:
+    """A callback that appends one run record and rewrites the JSON report at ``path``.
+
+    The report is complete up to the last finished group even if the run dies.
+    """
+    records: list[dict[str, Any]] = []
+
+    def add(rec: dict[str, Any]) -> None:
+        records.append(rec)
+        if path:
+            tmp = Path(f"{path}.tmp")
+            tmp.write_text(json.dumps(records, indent=1))
+            tmp.replace(path)
+
+    return add
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -132,11 +256,12 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=0,
         metavar="N",
-        help="compare N source files per variable after writing",
+        help="after writing, compare sampled steps of N source files per variable; "
+        "existing groups not yet verified are then rewritten",
     )
-    ap.add_argument("--max-groups", type=int, default=None)
+    ap.add_argument("--max-groups", type=int, default=None, help="write at most N groups")
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--report", help="write a JSON run report here")
+    ap.add_argument("--report", help="JSON run report, rewritten as each group finishes")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
     logging.basicConfig(
@@ -145,10 +270,10 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     groups = load_groups(args.index, region=args.region, patterns=args.groups)
-    if args.max_groups:
-        groups = dict(list(groups.items())[: args.max_groups])
     print(f"{len(groups)} groups, {sum(len(v) for v in groups.values())} files", file=sys.stderr)
     if args.dry_run:
+        if args.max_groups:
+            groups = dict(list(groups.items())[: args.max_groups])
         for gp, files in groups.items():
             print(f"{gp}\t{len(files)} files\t{sum(f.size or 0 for f in files) / 1e9:.1f} GB")
         return 0
@@ -156,26 +281,40 @@ def main(argv: list[str] | None = None) -> int:
     target = (
         StoreTarget.parse(args.target) if args.target else StoreTarget.region_default(args.region)
     )
+    try:
+        check_target_region(target, args.region)
+    except ValueError as e:
+        ap.error(str(e))
     if args.write_creds and not target.is_local:
         target = StoreTarget(
             url=target.url, region=target.region, credentials=load_sc_creds(args.write_creds)
         )
     repo = open_repository(target, create=True)
-    done = existing_groups(repo)
+    plan = plan_groups(
+        groups,
+        existing_groups(repo),
+        verify=args.verify,
+        overwrite=args.overwrite,
+        max_groups=args.max_groups,
+    )
+    ensure_hierarchy(repo, list(plan.write), region=args.region)
+    report = report_writer(args.report)
     runs: list[GroupRun] = []
-    for gp, files in groups.items():
-        if gp in done and not args.overwrite:
-            runs.append(GroupRun(gp, "skipped", len(files), 0.0))
-            print(f"skip {gp} (exists)", file=sys.stderr)
-            continue
-        run = run_group(gp, files, repo, overwrite=args.overwrite, verify_files=args.verify)
+    for gp, (files, reason) in plan.skip.items():
+        run = GroupRun(gp, "skipped", len(files), 0.0, reason=reason)
         runs.append(run)
+        report(asdict(run))
+        print(f"skip {gp} ({reason})", file=sys.stderr)
+    for gp, (files, overwrite, reason) in plan.write.items():
+        run = run_group(gp, files, repo, overwrite=overwrite, verify_files=args.verify)
+        if reason != "new":
+            run.reason = reason
+        runs.append(run)
+        report(asdict(run))
         print(
             f"{run.status:8s} {gp} {run.n_files} files {run.seconds}s {run.error or ''}",
             file=sys.stderr,
         )
-    if args.report:
-        Path(args.report).write_text(json.dumps([asdict(r) for r in runs], indent=1))
     failed = [r for r in runs if r.status == "failed"]
     print(f"{len(runs)} groups: {len(failed)} failed", file=sys.stderr)
     return 1 if failed else 0

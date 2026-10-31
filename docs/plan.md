@@ -163,9 +163,9 @@ Two regions, two repos, because the grids differ and because a single repo with 
 
 Store configuration specifics that matter at this scale:
 
-- Set `ManifestSplittingConfig` so each array's manifest is split along time (e.g. every 240 timesteps), and raise `ManifestPreloadConfig.max_total_refs`. Otherwise the 2 km SDBN1 arrays produce single manifests of tens of MB that every client (including icechunk-js in the browser) must download before reading one timestep.
+- Set `ManifestSplittingConfig` so each array's manifest is split along time (`MANIFEST_SPLIT_CHUNKS = 120` chunks along `time`, which is 120 timesteps for the one-step-per-chunk products). Preloading is left at the default: it only applies to coordinate-like arrays, so raising `max_total_refs` does nothing for the data arrays. Otherwise the 2 km SDBN1 arrays produce single manifests of tens of MB that every client (including icechunk-js in the browser) must download before reading one timestep.
 - Keep `virtual_chunk_location_compression` on (default); the paths are extremely repetitive and compress well.
-- Write with `rebase_with=ConflictDetector()`; one commit per group, groups written in parallel from Lambda (the pattern in `lithops_aws.md`).
+- Create the repository and every parent group in one commit before fanning out (`ensure_hierarchy`; concurrent creations of the same new node cannot rebase), then write with `rebase_with=ConflictDetector()`; one commit per group, groups written in parallel from Lambda (the pattern in `lithops_aws.md`).
 
 ### Pipeline steps
 
@@ -238,14 +238,14 @@ Each phase is implemented, then reviewed adversarially by a clean-context Opus a
 |---|---|---|
 | Conventions models, indexer, report, spreadsheet cross-check | done | `ismip7_helper/conventions/`, `index.py`, `report.py`, `docs/conventions_report.md` |
 | Phase A: virtualize one file, concatenate a group | done; reviewed (13 findings) and folded | `virtualize.py`, `docs/reviews/phase-a-review.md` |
-| Phase B: Icechunk repo config (spec v2, time-split manifests, anonymous source container), write-with-rebase, verifier, serial runner | done; adversarial review in progress, fold next | `store.py`, `pipeline.py` |
+| Phase B: Icechunk repo config (spec v2, time-split manifests, anonymous source container), write-with-rebase, verifier, serial runner | done; reviewed (16 findings) and folded | `store.py`, `pipeline.py`, `docs/reviews/phase-b-review.md` |
 | Phase C: Lambda handler (one group per invocation, process pool), boto3 fan-out, container image, deployment and cost notes | done; review queued behind the Phase B fold | `lambda_handler.py`, `fanout.py`, `Dockerfile.lambda`, `docs/lambda.md` |
 | Handler exercised on real data | 12 real files, 4 processes, written and verified in 10.9 s | local |
 | gridlook catalog generator | done (86 AIS / 132 GrIS entries) | `catalog.py` |
 | Dev-store viewer spike: icechunk-js in Node and hosted gridlook in headless Chromium on a six-file real-data store | done, both read the store unchanged | `scripts/dev/`, `docs/images/` |
 | ISMIP6 store CRS fix | script and tests done; dry run on the real store: 1,317 groups, 180 need a `crs` created | `scripts/fix_ismip6_crs.py` |
 
-Still local and not yet done: the `ismip7-virtualize --local` runs on the three group shapes (GrIS 1 km SMB and AIS ocean beyond the 8 km SMB subset), manifest-size and cold-open measurements with `engine="zarr"` versus `engine="rustytree"`, and the notebook skeletons. These are next after the Phase B and C folds.
+Still local and not yet done: the `ismip7-virtualize --local` runs on the three group shapes (GrIS 1 km SMB and AIS ocean beyond the 8 km SMB subset), manifest-size and cold-open measurements with `engine="zarr"` versus `engine="rustytree"`, and the notebook skeletons. These are next after the Phase C fold.
 
 ### First cloud run (Monday; needs credentials)
 

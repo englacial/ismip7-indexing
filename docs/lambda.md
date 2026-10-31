@@ -22,7 +22,7 @@ Measured on 2026-10-31 on 4 cores: 24 files in 9.3 s with a process pool.
 1. ECR repository: `aws ecr create-repository --repository-name ismip7-virtualize`.
 2. Build and push the image:
    ```bash
-   docker build -f Dockerfile.lambda -t ismip7-virtualize .
+   docker build -f Dockerfile.lambda --build-arg GIT_SHA=$(git rev-parse HEAD) -t ismip7-virtualize .
    aws ecr get-login-password | docker login --username AWS --password-stdin <acct>.dkr.ecr.us-west-2.amazonaws.com
    docker tag ismip7-virtualize:latest <acct>.dkr.ecr.us-west-2.amazonaws.com/ismip7-virtualize:latest
    docker push <acct>.dkr.ecr.us-west-2.amazonaws.com/ismip7-virtualize:latest
@@ -34,8 +34,20 @@ Measured on 2026-10-31 on 4 cores: 24 files in 9.3 s with a process pool.
 4. Write credentials for `englacial/ismip7` on source.coop: store the
    `sc_creds.json` content in Secrets Manager as `ismip7/sc_creds` and set
    `ISMIP7_WRITE_CREDS_SECRET=ismip7/sc_creds` on the function. (For a quick
-   test, `ISMIP7_WRITE_CREDS_JSON` with the JSON itself also works.) Source.coop
-   credentials are temporary; rotate the secret before a long run.
+   test, `ISMIP7_WRITE_CREDS_JSON` with the JSON itself also works, as static
+   credentials.) Both the flat `sc_creds.json` shape and the STS-style
+   `{"Credentials": {...}}` wrapper are accepted. A function with an S3 target
+   and neither variable set fails at once rather than at commit time (the
+   execution role cannot write to source.coop).
+
+   Source.coop credentials are temporary. With the secret, the handler passes
+   icechunk a refresh callback: icechunk re-reads the secret when the
+   credentials' `Expiration` passes. That only helps if the secret holds new
+   credentials by then, so **a run longer than the credential lifetime needs
+   the secret rotated before the credentials expire** (put fresh
+   `sc_creds.json` content into `ismip7/sc_creds`; running workers pick it up
+   at their next refresh). The fan-out itself also writes (it creates the
+   repository and the parent groups), so pass it a current `--write-creds`.
 5. Function:
    ```bash
    aws lambda create-function --function-name ismip7-virtualize \
@@ -51,15 +63,39 @@ Measured on 2026-10-31 on 4 cores: 24 files in 9.3 s with a process pool.
 ```bash
 ismip7-index --out index.parquet --save-listing listing-$(date +%F).txt.gz
 ismip7-fanout --index index.parquet --region AIS --groups 'CESM2-WACCM/historical/SDBN1-8000m' \
-    --function ismip7-virtualize --verify 1 --report run-ais-1.json        # one group first
-ismip7-fanout --index index.parquet --region AIS --function ismip7-virtualize \
+    --function ismip7-virtualize --write-creds sc_creds.json --verify 1 --report run-ais-1.json  # one group first
+ismip7-fanout --index index.parquet --region AIS --function ismip7-virtualize --write-creds sc_creds.json \
     --concurrency 40 --verify 1 --report run-ais.json                        # everything else
 ```
 
-Groups already in the repository are skipped; `--overwrite` rewrites them.
-Each group is its own commit with `rebase_with=ConflictDetector()`, so
-concurrent workers never conflict (they touch disjoint paths); the ref update
-is a compare-and-swap on S3, which handles the contention.
+Before invoking any worker, the fan-out creates the repository if needed
+and, in one commit, the root and every parent group (`<ESM>`,
+`<ESM>/<experiment>`, `climatology/...`) of the groups it is about to write
+(`store.ensure_hierarchy`). This is required, not an optimisation: two
+sessions that both create the same new node (the root of a fresh
+repository, or a shared `<ESM>` group) cannot be rebased onto each other
+(`NewNodeConflictsWithExistingNode`), and the fan-out sends groups in sorted
+order, so concurrent workers almost always share a parent. With the parents
+in place, each worker's commit only adds its own leaf group, and
+`rebase_with=ConflictDetector()` rebases it over the other workers' commits;
+the ref update is a compare-and-swap on S3, which handles the contention. As
+a backstop, `write_group` re-stages a commit whose only conflicts are
+concurrent creations of its ancestors. The handler only opens the repository
+and fails if it does not exist. Two workers writing the *same* group still
+conflict, which the fan-out never does.
+
+Each group is written in one commit; with `--verify N` the handler then
+compares sampled timesteps of N source files per variable (ranged reads,
+never whole objects) against the snapshot just written and either sets the
+group attribute `ismip7_verified` (a small follow-up commit) or deletes the
+group again, so the store never carries a group known to be bad. The report
+(rewritten as each group finishes) records `committed` and `deleted` per group.
+
+A re-run skips a group only when its `ismip7_sources_sha256` attribute (over
+the sorted source `(key, size)` pairs) matches the index and, with
+`--verify`, it carries `ismip7_verified`; other existing groups are
+rewritten, with the reason in the report. `--overwrite` rewrites everything
+selected. Release snapshots are tagged by hand with `store.tag_release(repo, name)`.
 
 ## Cost
 

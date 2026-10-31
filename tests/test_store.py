@@ -21,7 +21,10 @@ from ismip7_helper.store import (
 from ismip7_helper.virtualize import concat_group, local_registry
 from tests.conftest import AIS_KEY_FMT, write_forcing_file
 
-pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
+pytestmark = [
+    pytest.mark.filterwarnings("ignore::DeprecationWarning"),
+    pytest.mark.filterwarnings("ignore:variable .* has multiple fill values"),
+]
 
 
 def _keys(exp="historical", years=(1850, 1851), variables=("acabf", "tas")):
@@ -45,10 +48,11 @@ def local_group(synthetic_root):
             variable=k.rsplit("/", 1)[1].split("_")[0],
             seed=i,
             chunks=(4, 191, 191) if "/tas/" in k else None,
+            fill_cell=k.endswith("acabf_AIS_CESM2-WACCM_historical_SDBN1-32000m_v2_1851.nc"),
         )
         urls[k] = f"file://{p}"
     files = [parse_key(k).forcing for k in keys]
-    return concat_group(files, local_registry("/"), urls=urls), keys
+    return concat_group(files, local_registry(), urls=urls), keys
 
 
 @pytest.fixture
@@ -94,15 +98,34 @@ def test_repository_config_has_source_container_and_time_splitting(local_target)
     assert cfg.manifest.splitting is not None and cfg.manifest.preload.max_total_refs == 200_000
 
 
-def test_prepare_for_write_moves_time_encoding_to_attrs(local_group):
+def test_prepare_for_write_is_a_noop_safety_net(local_group):
     result, _ = local_group
     ds = prepare_for_write(result.ds)
+    # virtualize already left time as to_icechunk needs it
     assert ds["time"].attrs["units"] == "days since 1850-01-01"
     assert ds["time"].attrs["calendar"] == "standard"
-    assert ds["time"].encoding == {}
-    assert all("_FillValue" not in ds[v].attrs for v in ds.variables)
-    # the original is untouched
-    assert "units" not in result.ds["time"].attrs
+    assert ds["time"].encoding == {"_FillValue": None}
+    for c in ("time", "x", "y", "crs"):
+        assert "_FillValue" not in ds[c].attrs and ds[c].encoding["_FillValue"] is None
+    # the data variables keep VirtualiZarr's fill value attribute
+    assert ds["acabf"].attrs["_FillValue"] == result.ds["acabf"].attrs["_FillValue"]
+    again = prepare_for_write(ds)
+    assert all(again[v].attrs == ds[v].attrs for v in ds.variables)
+
+
+def test_prepare_for_write_fixes_legacy_coordinates():
+    ds = xr.Dataset(
+        coords={
+            "time": ("time", np.array([14.0]), {"_FillValue": np.nan}),
+            "x": ("x", np.array([0.0, 1.0]), {"_FillValue": np.nan}),
+        }
+    )
+    ds["time"].encoding = {"units": "days since 1850-01-01", "calendar": "standard"}
+    out = prepare_for_write(ds)
+    assert out["time"].attrs == {"units": "days since 1850-01-01", "calendar": "standard"}
+    assert out["time"].encoding == {"_FillValue": None} and out["x"].attrs == {}
+    # the input is not modified
+    assert "_FillValue" in ds["time"].attrs and "units" in ds["time"].encoding
 
 
 def test_write_read_verify_roundtrip(local_group, local_target, synthetic_root):
@@ -123,6 +146,14 @@ def test_write_read_verify_roundtrip(local_group, local_target, synthetic_root):
         ds["crs"].attrs["epsg_code"] == "EPSG:3031" and ds["acabf"].attrs["grid_mapping"] == "crs"
     )
     assert ds.attrs["ismip7_group"] == wr.group_path
+    # the fill cell written at [0, 0, 0] of the 1851 acabf file reads back masked
+    assert np.isnan(ds["acabf"].values[12, 0, 0]) and np.isfinite(ds["acabf"].values[12, 0, 1])
+    assert float(ds["acabf"].encoding["_FillValue"]) == pytest.approx(9.96921e36)
+    # coordinates are stored without a fill value
+    raw = open_group(repo, wr.group_path, decode_times=False, mask_and_scale=False)
+    for c in ("time", "x", "y", "crs"):
+        assert "_FillValue" not in raw[c].attrs and "_FillValue" not in raw[c].encoding, c
+    assert raw["time"].attrs["units"] == "days since 1850-01-01"
 
     # byte-for-byte against the source files, through the store's virtual references
     import netCDF4
@@ -167,7 +198,7 @@ def test_two_groups_commit_independently(local_group, local_target, synthetic_ro
         p = synthetic_root / k
         write_forcing_file(p, year=2015, variable="acabf", seed=5)
         urls[k] = f"file://{p}"
-    r2 = concat_group([parse_key(k).forcing for k in keys], local_registry("/"), urls=urls)
+    r2 = concat_group([parse_key(k).forcing for k in keys], local_registry(), urls=urls)
     write_group(repo, r2)
     assert existing_groups(repo) == {
         "CESM2-WACCM/historical/SDBN1-32000m",
@@ -175,3 +206,21 @@ def test_two_groups_commit_independently(local_group, local_target, synthetic_ro
     }
     ds = open_group(repo, r2.group_path)
     assert ds.sizes["time"] == 12 and isinstance(ds, xr.Dataset)
+
+
+def test_kept_missing_value_masks_on_read(synthetic_root, local_target):
+    (key,) = _keys(years=(1850,), variables=("acabf",))
+    p = synthetic_root / key
+    write_forcing_file(p, year=1850, variable="acabf", missing_value=-999.0)
+    import netCDF4
+
+    with netCDF4.Dataset(p, "a") as nc:
+        nc["acabf"].set_auto_mask(False)
+        nc["acabf"][0, 0, 0] = -999.0
+    result = concat_group([parse_key(key).forcing], local_registry(), urls={key: f"file://{p}"})
+    assert any("kept missing_value=-999.0" in n for n in result.notes)
+    repo = open_repository(local_target, create=True)
+    write_group(repo, result)
+    ds = open_group(repo, result.group_path)
+    assert np.isnan(ds["acabf"].values[0, 0, 0]) and np.isfinite(ds["acabf"].values[0, 0, 1])
+    assert verify_group(repo, result, n_files=1).ok

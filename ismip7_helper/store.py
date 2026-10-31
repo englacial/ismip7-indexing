@@ -23,7 +23,7 @@ import xarray as xr
 
 from . import SOURCE_BUCKET, SOURCE_REGION, TARGET_PREFIX
 from .conventions.models import SUBMISSION_CALENDAR, SUBMISSION_TIME_UNITS
-from .virtualize import SOURCE_URL, GroupResult
+from .virtualize import COORD_VARS, SOURCE_URL, GroupResult
 
 logger = logging.getLogger(__name__)
 
@@ -186,24 +186,30 @@ def open_repository(target: StoreTarget, *, create: bool = False, readonly: bool
 
 
 def prepare_for_write(ds: xr.Dataset) -> xr.Dataset:
-    """Last adjustments before ``to_icechunk``.
+    """Safety net before ``to_icechunk``; a no-op on :func:`~.virtualize.concat_group` output.
 
-    ``to_icechunk`` writes loaded variables raw, without xarray's CF encoding
-    step, so the time units and calendar must be attributes; and the
-    ``_FillValue``/``missing_value`` attributes VirtualiZarr leaves on loaded
-    variables (base64 strings) are dropped, since the Zarr metadata carries
-    the fill value.
+    ``virtualize`` already leaves the dataset as ``to_icechunk`` needs it:
+    ``time`` units/calendar as attributes (loaded variables are written by
+    ``to_zarr``, which only CF-encodes datetime values), and the base64
+    ``_FillValue`` attribute VirtualiZarr sets kept on the virtual data
+    variables so readers mask fill cells. This only makes sure the coordinate
+    variables (:data:`~.virtualize.COORD_VARS`) carry no ``_FillValue`` (CF
+    discourages it) and that ``time`` has its units, moving them from
+    ``encoding`` if an older caller left them there. Idempotent; the input is
+    not modified.
     """
     ds = ds.copy()
     if "time" in ds.variables:
-        enc = ds["time"].encoding
-        units = enc.get("units", SUBMISSION_TIME_UNITS)
-        calendar = enc.get("calendar", SUBMISSION_CALENDAR)
-        ds["time"].attrs.update({"units": units, "calendar": calendar})
-        ds["time"].encoding = {}
-    for v in ds.variables:
-        for k in ("_FillValue", "missing_value"):
-            ds[v].attrs.pop(k, None)
+        t = ds["time"]
+        for k, default in (("units", SUBMISSION_TIME_UNITS), ("calendar", SUBMISSION_CALENDAR)):
+            if k not in t.attrs:
+                t.attrs[k] = t.encoding.get(k, default)
+            t.encoding.pop(k, None)
+    for c in COORD_VARS:
+        if c in ds.variables:
+            for k in ("_FillValue", "missing_value"):
+                ds[c].attrs.pop(k, None)
+            ds[c].encoding["_FillValue"] = None
     return ds
 
 

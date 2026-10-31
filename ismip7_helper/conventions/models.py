@@ -280,14 +280,29 @@ class SubmissionFile(BaseModel):
         key = key or self.filename
         out: list[FileFinding] = []
         if variables is not None and self.variable not in variables:
-            out.append(
-                FileFinding(
-                    key=key,
-                    severity=Severity.ERROR,
-                    code="unknown_variable",
-                    message=f"'{self.variable}' is not in the ISMIP7 data request",
+            from .registry import WEBSITE_ONLY_VARIABLES  # local import: registry imports models
+
+            if self.variable in WEBSITE_ONLY_VARIABLES:
+                out.append(
+                    FileFinding(
+                        key=key,
+                        severity=Severity.WARNING,
+                        code="website_only_variable",
+                        message=(
+                            f"'{self.variable}' is in the website data request but not in the "
+                            "checker's ISMIP7_variable_request.csv; the checker will reject it"
+                        ),
+                    )
                 )
-            )
+            else:
+                out.append(
+                    FileFinding(
+                        key=key,
+                        severity=Severity.ERROR,
+                        code="unknown_variable",
+                        message=f"'{self.variable}' is not in the ISMIP7 data request",
+                    )
+                )
         if experiments is not None:
             exp = experiments.get(self.experiment)
             if exp is None:

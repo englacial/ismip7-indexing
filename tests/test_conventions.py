@@ -16,6 +16,7 @@ from ismip7_helper.conventions import (
     grid_registry,
     parse_key,
     parse_submission_path,
+    protocol_inventory,
     variable_registry,
 )
 from ismip7_helper.conventions.parse import parse_forcing_key, parse_submission_filename
@@ -119,6 +120,21 @@ def test_submission_year_range_checked():
     )
     assert {f.code for f in r.findings} == {"year_range"}
     assert not r.ok
+
+
+def test_website_only_variable_is_a_warning():
+    r = parse_submission_path(
+        "GrIS/UAF/PISM/CORE/C001/pr_GrIS_UAF_PISM_m001_CESM2-WACCM_f001_historical_C001_1985-2014.nc"
+    )
+    assert {f.code for f in r.findings} == {"website_only_variable"} and r.ok
+
+
+def test_protocol_inventory_loads():
+    inv = protocol_inventory()
+    assert len(inv) == 1120
+    assert inv[("GrIS", "CESM2-WACCM", "historical", "SDBN1-1000m", "acabf")] == "3"
+    assert inv[("AIS", "CESM2-WACCM", "ssp585", "ocean", "tf")] == "3"
+    assert inv[("GrIS", "OCX", "EN4", "ocean-4000m", "tf")] == "1"
 
 
 def test_submission_bad_names():

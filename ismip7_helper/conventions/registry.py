@@ -19,6 +19,18 @@ from .models import Experiment, GridSpec, Region, Severity, VariableSpec, Variab
 
 _DATA = resources.files(__package__) / "data"
 
+# Variables the ISMIP7 website's data request lists but the checker's CSV does
+# not (as of isschecker 0.9.0): the optional "own SMB" diagnostics for models
+# that compute their own surface mass balance, and tfbase, which the checker
+# spells thdrflf. Files named with these are not rejected by the conventions
+# here, but the checker will refuse them until its CSV catches up.
+# Source: https://docs.google.com/spreadsheets/d/17aWkDRZhhsJIS_YsUBcoQ9IatAoPChM1u9nyxp7Wdgk
+# (the "ISMIP7_variable_request_website" sheet embedded in
+# https://www.ismip.org/research/ismip7).
+WEBSITE_ONLY_VARIABLES: frozenset[str] = frozenset(
+    {"pr", "mrro", "prra", "snicem", "snicefreez", "sbl", "tas", "tfbase"}
+)
+
 
 def _read_csv(name: str, delimiter: str = ",") -> list[dict[str, str]]:
     with (_DATA / name).open(encoding="utf-8", newline="") as f:
@@ -117,6 +129,28 @@ def grid_registry() -> dict[tuple[Region, int], GridSpec]:
     return out
 
 
+@lru_cache(maxsize=1)
+def protocol_inventory() -> dict[tuple[str, str, str, str, str], str]:
+    """Dataset versions the ISMIP7 protocol spreadsheet lists, keyed by
+    (region, forcing_dir, experiment_dir, product, variable) -> version string.
+
+    ``forcing_dir``/``experiment_dir`` are the raw Globus path segments, so the
+    observational era reads ("GrIS", "OCX", "EN4", ...) as it does in the bucket.
+    """
+    out: dict[tuple[str, str, str, str, str], str] = {}
+    for row in _read_csv("protocol_inventory_2026-10.csv"):
+        out[
+            (
+                row["region"],
+                row["forcing_dir"],
+                row["experiment_dir"],
+                row["product"],
+                row["variable"],
+            )
+        ] = row["version"]
+    return out
+
+
 def grid_for_shape(region: Region, ny: int, nx: int) -> GridSpec | None:
     """Identify the standard grid from an array's (y, x) shape, or None."""
     for (reg, _), g in grid_registry().items():
@@ -125,4 +159,11 @@ def grid_for_shape(region: Region, ny: int, nx: int) -> GridSpec | None:
     return None
 
 
-__all__ = ["experiment_registry", "grid_for_shape", "grid_registry", "variable_registry"]
+__all__ = [
+    "WEBSITE_ONLY_VARIABLES",
+    "experiment_registry",
+    "grid_for_shape",
+    "grid_registry",
+    "protocol_inventory",
+    "variable_registry",
+]

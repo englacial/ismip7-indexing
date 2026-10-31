@@ -30,13 +30,16 @@ from .models import (
 )
 from .parse import ParseResult, parse_key, parse_submission_path
 from .registry import (
+    WEBSITE_ONLY_VARIABLES,
     experiment_registry,
     grid_for_shape,
     grid_registry,
+    protocol_inventory,
     variable_registry,
 )
 
 __all__ = [
+    "WEBSITE_ONLY_VARIABLES",
     "Experiment",
     "FileFinding",
     "ForcingFile",
@@ -53,5 +56,6 @@ __all__ = [
     "grid_registry",
     "parse_key",
     "parse_submission_path",
+    "protocol_inventory",
     "variable_registry",
 ]

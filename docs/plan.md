@@ -1,6 +1,6 @@
 # ISMIP7 virtualization and viewer: findings and plan
 
-Prepared 2026-10-31 against SOW No. 1 (draft, 80 h ceiling). Everything below about the data was measured directly from the public `us-west-2.opendata.source.coop` bucket (anonymous S3 listing plus HDF5 header reads of ~25 representative files); everything about conventions comes from the ISMIP7 protocol page and the ISMIP GitHub repositories cited inline. The protocol page links a "cheat sheet", a "filename and convention" Google Doc and a protocol spreadsheet (AISFileVersion / GrISFileVersion tabs list the available input datasets); those are on docs.google.com / drive.google.com and could not be fetched from this session.
+Prepared 2026-10-31 against SOW No. 1 (draft, 80 h ceiling). Everything below about the data was measured directly from the public `us-west-2.opendata.source.coop` bucket (anonymous S3 listing plus HDF5 header reads of ~25 representative files); everything about conventions comes from the ISMIP7 protocol page and the ISMIP GitHub repositories cited inline. The protocol overview spreadsheet (AISFileVersion / GrISFileVersion tabs, status log) and the website's variable request have been fetched and cross-checked against the bucket (Section 1d). The cheat sheet, the filename-and-convention PDF, the Globus manual and the two ocean focus-group documents are Drive files served from `drive.usercontent.google.com`, which is still blocked.
 
 ## 1. What is on source.coop under `ismip/`
 
@@ -72,6 +72,17 @@ Metadata inconsistencies found in the sample (there will be more):
 - Coordinate dtypes vary (`int64`, `int32`, `float32`, `float64` for x/y; `int64` or `float64` for time) and some x/y arrays carry `_FillValue = nan`.
 - Units are inconsistent in spelling (`m`, `meter`, `meters`; `degC`, `deg_C`).
 - Variable names with hyphens (`acabf-anomaly`, `tas-anomaly`) are legal in Zarr but awkward in xarray/CF; keep them as array names but expect tooling friction.
+
+### 1d. Cross-check against the ISMIP7 protocol spreadsheet
+
+The protocol overview spreadsheet linked from the protocol page (https://docs.google.com/spreadsheets/d/1bNXSkOgYxe96JX9o4bVNAhmpd0qal3UDehACXpRINgs, "Updated July 17", status log through the week of 4 October 2026) lists, per region, ESM, experiment and product, every forcing variable with its version and Globus path. Extracted into `ismip7_helper/conventions/data/protocol_inventory_2026-10.csv` (1,120 entries) and compared with the bucket listing (`tests/test_full_listing.py::test_bucket_matches_protocol_spreadsheet`):
+
+- Every spreadsheet entry exists in the bucket, and every version number matches (v3 for GrIS SDBN1 `acabf`/`mrro` and derivatives, v2 for `ts`/`sgd`, v2 for AIS SDBN1, v1 for dEBM2, v3 for AIS ocean, v2 for GrIS ocean, v1 for OCX EN4). So the bucket is a faithful mirror of the Globus "official" inventory, not a stale copy.
+- The bucket holds 417 (dataset, variable) combinations the spreadsheet does not itemise: the `pr`, `tas`, `tas-anomaly` and `extra/` entries it only mentions in prose; the `mrro-anomaly`/`pr-anomaly` fields in `ctrl`; the whole `ssp245` scenario; and the four AIS OCX ocean pathways (`main`, `cold`, `warm`, `vary`; the spreadsheet says "the one to use" is `main`).
+- Globus keeps a trailing version directory (`.../SDBN1-1000m/acabf/v3/<file>`); source.coop folds it into the filename. Our parser already takes the version from the filename.
+- The spreadsheet labels dEBM2 "ONLY USE IF INTERESTED IN SENSITIVITY": SDBN1 is the primary atmosphere product and dEBM2 the secondary downscaling. GEMB-SDBN1 is the MRI-ESM2-0 atmosphere product (status log: "file renaming for MRI-ESM2-0 atmosphere fields from SDBN1 to GEMB-SDBN1", week of 27 July). Store attrs should carry that.
+- The CORE/ESM set counters are fixed: C001–C011 as in the UAF submission; E001/E002 are ssp534-over for CESM2-WACCM/MRI-ESM2-0, E003–E012 are historical+ssp370 for ACCESS-CM2, CanESM5, GFDL-ESM4, IPSL-CM6A-LR, MPI-ESM1-2-HR. That is why those five ESMs only have historical and ssp370 forcing.
+- The website's variable request (sheet "ISM_2026") differs from the checker's CSV: it has eight variables the checker lacks (`pr`, `mrro`, `prra`, `snicem`, `snicefreez`, `sbl`, `tas` for models that compute their own SMB, and `tfbase`), and the checker has `thdrflf` where the website has `tfbase`. Files named with the website-only variables are a warning in our models, not an error, but the checker will refuse them until its CSV is updated. Worth raising with the checker maintainers.
 
 ### 1c. ISMIP7 submission (output) conventions
 
@@ -211,7 +222,7 @@ Total 56–80 h, matching the SOW ranges. The observations and melt-calibration 
 ## 8. Decisions so far and open items
 
 - Repo: `englacial/ismip7-indexing` (created). Target prefix: `englacial/ismip7` on source.coop. Conventions models: done (see README and `docs/conventions_report.md`).
-- Still needed: write credentials for `englacial/ismip7` and an AWS role in the Astera account for Lambda (or reimbursable compute); `docs.google.com` and `drive.google.com` allowed in the session, or copies of the cheat sheet, the filename-and-convention doc and the protocol spreadsheet, to cross-check the input variable list against its AISFileVersion / GrISFileVersion tabs.
+- Still needed: write credentials for `englacial/ismip7` and an AWS role in the Astera account for Lambda (or reimbursable compute); `drive.usercontent.google.com` allowed in the session for the cheat sheet, the filename-and-convention PDF and the Globus manual (the spreadsheets and the README doc are already in hand).
 - Upstream report of the CRS swap: to the forcing producers / ISMIP7 (GitHub discussions), with the conventions report attached; your call on timing.
 
 ## References

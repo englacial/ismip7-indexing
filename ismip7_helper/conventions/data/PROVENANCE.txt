@@ -1,1 +1,11 @@
-4f3145f9ee0973f13a232e640e48dc16aebd46d3 2026-10-06
+ISMIP7_variable_request.csv, experiments_ismip7.csv, gdfs/: copied from
+https://github.com/ismip/ISM_SimulationChecker at commit
+4f3145f9ee0973f13a232e640e48dc16aebd46d3 (2026-10-06, isschecker 0.9.0).
+
+protocol_inventory_2026-10.csv: the per-variable dataset versions listed in the
+GrISFileVersion / AISFileVersion tabs of the ISMIP7 protocol overview
+spreadsheet (https://docs.google.com/spreadsheets/d/1bNXSkOgYxe96JX9o4bVNAhmpd0qal3UDehACXpRINgs,
+linked from https://www.ismip.org/research/ismip7, "Updated July 17", status
+log through the week of October 4, 2026), extracted from the Globus paths
+/ISMIP7/<region>/<ESM>/<experiment>/<product>/<variable>/v<N>/. On source.coop
+the trailing version directory is folded into the filename.

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from ismip7_helper.conventions import ForcingKind, Severity
+from ismip7_helper.conventions import ForcingKind, Severity, protocol_inventory
 from ismip7_helper.index import parse_all, read_listing
 
 LISTING = Path(__file__).parent / "data" / "ismip_keys_2026-10-31.txt.gz"
@@ -90,3 +90,25 @@ def test_uaf_submission_parses(results):
     errs = Counter(f.code for r in subs for f in r.findings if f.severity == Severity.ERROR)
     # scalar_*.nc files are not in the data request, and C011 is named 'OCX'
     assert errs == {"unknown_variable": 11, "unknown_experiment": 38}
+
+
+def test_bucket_matches_protocol_spreadsheet(results):
+    """Every dataset/version the ISMIP7 protocol spreadsheet lists is in the bucket, same version."""
+    bucket: dict[tuple[str, str, str, str, str], set[str]] = {}
+    for r in results:
+        f = r.forcing
+        if (
+            f is None
+            or f.version is None
+            or f.kind not in (ForcingKind.ANNUAL, ForcingKind.MULTIYEAR)
+        ):
+            continue
+        if f.experiment == "ocx":
+            key = (f.region, "OCX", f.source, f.product, f.variable)
+        else:
+            key = (f.region, f.source, f.experiment, f.product, f.variable)
+        bucket.setdefault(key, set()).add(str(f.version))
+    missing = {k: v for k, v in protocol_inventory().items() if k not in bucket}
+    assert missing == {}
+    wrong = {k: (v, bucket[k]) for k, v in protocol_inventory().items() if v not in bucket[k]}
+    assert wrong == {}

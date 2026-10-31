@@ -1,0 +1,18 @@
+# Lambda container image for ismip7_helper.lambda_handler.
+#
+#   docker build -f Dockerfile.lambda -t ismip7-virtualize .
+#   # push to ECR and create/update the function; see docs/lambda.md
+#
+# Memory sets vCPUs (10240 MB = 6 vCPUs); the handler sizes its process pool
+# from os.cpu_count(). Timeout 900 s. Only /tmp is writable.
+FROM public.ecr.aws/lambda/python:3.12
+
+ENV PIP_NO_CACHE_DIR=1 \
+    UV_CACHE_DIR=/tmp/.cache/uv \
+    ISMIP7_LOG_LEVEL=INFO
+
+COPY pyproject.toml README.md LICENSE ${LAMBDA_TASK_ROOT}/
+COPY ismip7_helper/ ${LAMBDA_TASK_ROOT}/ismip7_helper/
+RUN pip install "${LAMBDA_TASK_ROOT}[index]"
+
+CMD ["ismip7_helper.lambda_handler.handler"]

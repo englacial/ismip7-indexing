@@ -75,6 +75,22 @@ Metadata inconsistencies found in the sample (there will be more):
 - Units are inconsistent in spelling (`m`, `meter`, `meters`; `degC`, `deg_C`).
 - Variable names with hyphens (`acabf-anomaly`, `tas-anomaly`) are legal in Zarr but awkward in xarray/CF; keep them as array names but expect tooling friction.
 
+### 1c. The written forcing-file conventions
+
+"ISMIP7 filenames and conventions" (19 June 2026, revised 27 August 2026; PDF linked from the protocol page) has a section "Conventions for climate forcing files" that the bucket follows:
+
+- NetCDF4, one main variable per file, filename starts with the variable name; files hold one year (possibly monthly) up to several years, chosen for distribution size.
+- Directory levels for model, scenario, variant (downscaling or interpolation method, with resolution, e.g. `SDBN1-1000m` vs `SDBN1-4000m`), version; the filename collects the directory names in order, version second to last, year or year range last; no underscores inside a component; scenarios lower case; the ice sheet as `_GrIS_` / `_AIS_`.
+- CMIP-derived climatology and bias go under `extras/`; observation-derived ones under `obs/` (the melt-calibration and observations products on source.coop are the `obs/`, `meltmip/` and `parameterisations/` trees of that layout).
+- The ESM variant (`r1i1p1f1`) is in the metadata unless several members are used, in which case it goes in the filename. (None of the bucket's filenames carry it.)
+- Filenames must be unique across the tree: "a file with the same filename anywhere in the directory structure has the same content". That is the property that makes virtual references safe to key by filename.
+
+This also explains the one stray file in the bucket: `sa_CESM2-WACCM_climatology_r1i1p1f1_ismip8km_60m_1850_199501-201412.nc` is the ocean focus group's pre-convention naming (`<var>_<model>_climatology_r1i1p1f1_ismip8km_60m_...`, as listed in their draft protocol document) that was never renamed.
+
+For submissions the same document adds, beyond what the checker enforces today: a mandatory global `crs` attribute (`epsg:3413` or `epsg:3031`), float32 for the time variable and for masks, dimension names exactly `time`, `x`, `y` with 1-D x/y and no lat/lon, output on the ISMIP6 grids at power-of-two kilometre resolutions (1 km finest for GrIS, 2 km for AIS). These are recorded as constants in `models.py` for the SOW 2 checker contribution.
+
+The cheat sheet (August 2026) adds the experiment design that the store should expose as metadata: the control run uses a 2000–2029 climatology built from historical plus ssp126 per ESM and downscaling method, with fracture held at 2015; OCX uses ERA5-downscaled atmosphere (GrIS 1958–2025, AIS 1979–2025), EN4 ocean for GrIS (1950–2025) and the expert-judgement AIS ocean pathways (1950–2025) of which `main` is required for C011 and `cold`/`warm`/`vary` are sensitivity variants; the SMB anomaly reference period is 1960–1989.
+
 ### 1d. ISMIP7 submission (output) conventions
 
 Authoritative sources, all in the `ismip` GitHub organization:
@@ -112,22 +128,6 @@ The protocol overview spreadsheet linked from the protocol page (https://docs.go
 - The spreadsheet labels dEBM2 "ONLY USE IF INTERESTED IN SENSITIVITY": SDBN1 is the primary atmosphere product and dEBM2 the secondary downscaling. GEMB-SDBN1 is the MRI-ESM2-0 atmosphere product (status log: "file renaming for MRI-ESM2-0 atmosphere fields from SDBN1 to GEMB-SDBN1", week of 27 July). Store attrs should carry that.
 - The CORE/ESM set counters are fixed: C001–C011 as in the UAF submission; E001/E002 are ssp534-over for CESM2-WACCM/MRI-ESM2-0, E003–E012 are historical+ssp370 for ACCESS-CM2, CanESM5, GFDL-ESM4, IPSL-CM6A-LR, MPI-ESM1-2-HR. That is why those five ESMs only have historical and ssp370 forcing.
 - The website's variable request (sheet "ISM_2026") differs from the checker's CSV: it has eight variables the checker lacks (`pr`, `mrro`, `prra`, `snicem`, `snicefreez`, `sbl`, `tas` for models that compute their own SMB, and `tfbase`), and the checker has `thdrflf` where the website has `tfbase`. Files named with the website-only variables are a warning in our models, not an error, but the checker will refuse them until its CSV is updated. Worth raising with the checker maintainers.
-
-### 1c. The written forcing-file conventions
-
-"ISMIP7 filenames and conventions" (19 June 2026, revised 27 August 2026; PDF linked from the protocol page) has a section "Conventions for climate forcing files" that the bucket follows:
-
-- NetCDF4, one main variable per file, filename starts with the variable name; files hold one year (possibly monthly) up to several years, chosen for distribution size.
-- Directory levels for model, scenario, variant (downscaling or interpolation method, with resolution, e.g. `SDBN1-1000m` vs `SDBN1-4000m`), version; the filename collects the directory names in order, version second to last, year or year range last; no underscores inside a component; scenarios lower case; the ice sheet as `_GrIS_` / `_AIS_`.
-- CMIP-derived climatology and bias go under `extras/`; observation-derived ones under `obs/` (the melt-calibration and observations products on source.coop are the `obs/`, `meltmip/` and `parameterisations/` trees of that layout).
-- The ESM variant (`r1i1p1f1`) is in the metadata unless several members are used, in which case it goes in the filename. (None of the bucket's filenames carry it.)
-- Filenames must be unique across the tree: "a file with the same filename anywhere in the directory structure has the same content". That is the property that makes virtual references safe to key by filename.
-
-This also explains the one stray file in the bucket: `sa_CESM2-WACCM_climatology_r1i1p1f1_ismip8km_60m_1850_199501-201412.nc` is the ocean focus group's pre-convention naming (`<var>_<model>_climatology_r1i1p1f1_ismip8km_60m_...`, as listed in their draft protocol document) that was never renamed.
-
-For submissions the same document adds, beyond what the checker enforces today: a mandatory global `crs` attribute (`epsg:3413` or `epsg:3031`), float32 for the time variable and for masks, dimension names exactly `time`, `x`, `y` with 1-D x/y and no lat/lon, output on the ISMIP6 grids at power-of-two kilometre resolutions (1 km finest for GrIS, 2 km for AIS). These are recorded as constants in `models.py` for the SOW 2 checker contribution.
-
-The cheat sheet (August 2026) adds the experiment design that the store should expose as metadata: the control run uses a 2000–2029 climatology built from historical plus ssp126 per ESM and downscaling method, with fracture held at 2015; OCX uses ERA5-downscaled atmosphere (GrIS 1958–2025, AIS 1979–2025), EN4 ocean for GrIS (1950–2025) and the expert-judgement AIS ocean pathways (1950–2025) of which `main` is required for C011 and `cold`/`warm`/`vary` are sensitivity variants; the SMB anomaly reference period is 1960–1989.
 
 ## 2. Repository decision: new clean repo
 

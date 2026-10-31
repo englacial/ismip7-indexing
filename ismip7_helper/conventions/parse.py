@@ -1,8 +1,14 @@
 """Parse source.coop keys into :class:`ForcingFile` / :class:`SubmissionFile` records.
 
-The forcing layout is undocumented upstream; the regular expressions below
-encode what the bucket actually contains (listing of 2026-10-31, 285k keys)
-and ``tests/test_full_listing.py`` keeps them honest. Anything that does not
+The forcing layout follows "ISMIP7 filenames and conventions" (19 June 2026,
+revised 27 August 2026; linked from https://www.ismip.org/research/ismip7),
+section "Conventions for climate forcing files": one main variable per file,
+the filename collects the directory names separated by underscores, version
+second to last, year or year range last, no underscores inside a component,
+scenarios lower case, resolution in the variant (product) level, extras/ for
+CMIP-derived climatology and bias. The regular expressions below encode that
+as the bucket actually realises it (listing of 2026-10-31, 285k keys) and
+``tests/test_full_listing.py`` keeps them honest. Anything that does not
 fit is returned with a finding rather than raised, so a full-bucket parse
 yields a report instead of a traceback.
 """
@@ -46,9 +52,10 @@ KNOWN_ESMS = frozenset(
 # Observational-era sources that sit under OCX/.
 KNOWN_OCX_SOURCES = frozenset({"RACMO2.3p2-ERA", "EN4", "ocean"})
 
-# Forcing variables seen in the bucket, with what they are. Empirical; the
-# ISMIP7 protocol spreadsheet (AISFileVersion / GrISFileVersion tabs) is the
-# authority and lives in a Google Sheet we have not been able to fetch.
+# Forcing variables seen in the bucket, with what they are. The ISMIP7
+# protocol overview spreadsheet (AISFileVersion / GrISFileVersion tabs, see
+# registry.protocol_inventory) lists the same set; it is reproduced here so a
+# new or misspelt variable is noticed at parse time.
 KNOWN_FORCING_VARIABLES: dict[str, str] = {
     "acabf": "surface mass balance flux (kg m-2 s-1)",
     "acabf-anomaly": "SMB anomaly relative to the 1960-1989 climatology",

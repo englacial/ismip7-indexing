@@ -208,6 +208,15 @@ class GridSpec(BaseModel):
 # --------------------------------------------------------------------------- submissions
 
 SET_IDS = ("CORE", "ESM", "PPE")
+
+# Mandatory global attributes for a submission file. The filenames-and-conventions
+# document lists all five; the checker (isschecker 0.9.0) enforces the first four.
+REQUIRED_GLOBAL_ATTRS = ("group", "model", "contact_name", "contact_email", "crs")
+# Submission files: float32 everywhere (data, masks, time), dims (time, [z,] y, x)
+# with 1-D x/y, no lat/lon, time unlimited, "days since 1850-01-01", calendar
+# "standard", default NetCDF4 _FillValue, no scale_factor/add_offset.
+SUBMISSION_TIME_UNITS = "days since 1850-01-01"
+SUBMISSION_CALENDAR = "standard"
 _SET_LETTER = {"C": "CORE", "E": "ESM", "P": "PPE"}
 
 

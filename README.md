@@ -32,8 +32,9 @@ follow the naming pattern.
 `ismip7_helper.conventions` holds typed (pydantic) models of the ISMIP7 file
 conventions:
 
-- `ForcingFile`: the input forcing datasets. Layout (derived from the bucket,
-  there is no upstream document):
+- `ForcingFile`: the input forcing datasets, per the "Conventions for climate
+  forcing files" section of the ISMIP7 filenames-and-conventions document
+  (linked from the protocol page) as realised in the bucket:
   `data/<ESM>/<experiment>/<product>/<variable>/<variable>_<region>_<ESM>_<experiment>_<product>_v<N>_<YYYY>.nc`,
   one file per year with 12 monthly steps. `product` is the SMB or ocean model
   plus resolution (`SDBN1-2000m`, `dEBM2-8000m`, `GEMB-SDBN1-1000m`, `ocean`,
@@ -80,7 +81,8 @@ derived from; `tests/test_full_listing.py` asserts the conventions hold on it.
 
 ## References
 
-- ISMIP7 protocol: https://www.ismip.org/research/ismip7
+- ISMIP7 protocol: https://www.ismip.org/research/ismip7 (links the cheat sheet,
+  the filenames-and-conventions document, the protocol overview spreadsheet and the Globus manual)
 - Compliance checker and data request: https://github.com/ismip/ISM_SimulationChecker
 - File conventions: https://github.com/ismip/ismip7-scalar-processing (docs/user/file-conventions.md)
 - Time encoding: https://github.com/ismip/ismip7-time-encoding

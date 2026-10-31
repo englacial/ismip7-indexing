@@ -3,10 +3,11 @@
 Two families of files are modelled:
 
 * :class:`ForcingFile` -- the input forcing datasets the ISMIP7 focus groups
-  publish under ``ismip/ismip7-ais-forcing`` and ``ismip/ismip7-gris-forcing``.
-  Their layout is not written down anywhere we could find; the pattern below
-  was derived from the full bucket listing on 2026-10-31 (285k keys) and is
-  checked against it in the tests.
+  publish under ``ismip/ismip7-ais-forcing`` and ``ismip/ismip7-gris-forcing``,
+  following "ISMIP7 filenames and conventions" (section "Conventions for
+  climate forcing files"; PDF linked from the protocol page). The pattern is
+  checked against the full bucket listing of 2026-10-31 (285k keys) and
+  against the protocol spreadsheet's dataset inventory in the tests.
 * :class:`SubmissionFile` -- model output as submitted to ISMIP7. This one is
   specified: the ISMIP7 protocol page (https://www.ismip.org/research/ismip7,
   section "ISMIP7 filenaming and folder conventions") and the compliance

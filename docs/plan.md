@@ -226,9 +226,12 @@ Two separate things were being called "validator".
 
 Hours are against the SOW ranges (Task 1: 32–48 h, Task 2: 24–32 h, 80 h ceiling). About 8 h are spent so far on the survey, the conventions models and the indexer.
 
+Each phase is implemented, then reviewed adversarially by a clean-context Opus agent that sees the code but not the author's reasoning, then the review is folded in by a second Opus pass; the fold commit records what was accepted and what was declined and why.
+
 **Before the first cloud run (local, no credentials needed):**
 
-1. Pipeline core in `ismip7_helper`: `virtualize.py` (open yearly files with virtualizarr, drop bounds, inline coords, normalise time per calendar/epoch, override CRS from `GridSpec`, concatenate along time) and `store.py` (Icechunk 2 repo creation with the manifest-splitting config, virtual chunk container for `s3://us-west-2.opendata.source.coop/ismip/`, write-with-rebase, group attrs from the product READMEs and the protocol spreadsheet). Ported from `ismip6_helper` with attribution.
+1. Phase A, `virtualize.py` (done, under review): open yearly files with VirtualiZarr, drop bounds and lat/lon, load coords, re-encode time to `days since 1850-01-01` / `standard` from any source calendar, verify x/y against the standard grid and replace them, attach a correct `crs`, strip tool chatter from attrs, record provenance; concatenate a group's files along time and merge its variables with a strict same-axis check. Tested on synthetic files on the 32 km / 16 km grids and, under the `network` marker, on real files.
+   Phase B, `store.py`: Icechunk 2 repo creation with the manifest-splitting config, virtual chunk container for `s3://us-west-2.opendata.source.coop/ismip/`, write-with-rebase, group attrs from the product READMEs and the protocol spreadsheet.
 2. `ismip7-virtualize --local` run on three groups of different shape: AIS 8 km SMB (one chunk per step), GrIS 1 km SMB (four), AIS ocean (4-D, ~5,000 refs per file). Byte-for-byte chunk comparison against the source files; measure manifest sizes and cold-open time with `engine="zarr"` and `engine="rustytree"`.
 3. Lambda runtime: a plain container image with the package, invoked with `boto3` from a `concurrent.futures` fan-out (no Lithops). Testable locally with the same handler.
 4. Notebook skeletons: open the store, subset, plot, profile.

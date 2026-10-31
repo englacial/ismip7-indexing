@@ -24,6 +24,14 @@ classifiers = [
 dependencies = [
     "pydantic>=2.7",
     "numpy>=1.26",
+    "xarray>=2025.9",
+    "cftime>=1.6",
+    "virtualizarr>=2.8",
+    "obstore>=0.12",
+    "obspec-utils",
+    "h5py>=3.12",
+    "icechunk>=2.3",
+    "zarr>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +43,7 @@ index = [
 dev = [
     "pytest>=8",
     "ruff>=0.6",
+    "netCDF4>=1.7",
     "ismip7-helper[index]",
 ]
 
@@ -47,7 +56,8 @@ packages = ["ismip7_helper"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["network: tests that list the public source.coop bucket"]
+markers = ["network: tests that read the public source.coop bucket"]
+addopts = "-m 'not network'"
 
 [tool.ruff]
 line-length = 100

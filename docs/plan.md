@@ -2,7 +2,7 @@
 
 Revised 2026-10-31 against SOW No. 1 (draft, 80 h ceiling). Everything about the data was measured directly from the public `us-west-2.opendata.source.coop` bucket (anonymous S3 listing of all 285,752 keys plus HDF5 header reads of ~25 representative files). Everything about conventions comes from the ISMIP7 protocol page, the documents it links (cheat sheet, filenames-and-conventions document, protocol overview spreadsheet, Globus manual, ocean focus-group protocols, submission README template) and the ISMIP GitHub repositories, all cited inline and in the reference list. The conventions are implemented and tested in this repository (`ismip7_helper.conventions`); the cross-checks referred to below are tests in `tests/`.
 
-Status: Section 5 (conventions models and indexer) is done. The next step is the virtualization pipeline, developed and tested locally against the public bucket so that the first cloud run can be set up once credentials are provisioned (planned for Monday).
+Status (end of 2026-10-31): everything that can be done without credentials is written and tested (100 tests). Conventions models and indexer; Phase A virtualize (reviewed and folded); Phase B store writer and runner (review in progress); Phase C Lambda handler, fan-out, container image and deployment notes (review queued); gridlook catalog generator; a six-file real-data dev store that icechunk-js and the unmodified hosted gridlook both read; the ISMIP6 CRS fix script with a read-only dry run against the real store. Waiting on Monday: source.coop write credentials for `englacial/ismip7` and an AWS role plus ECR repository in the Astera account. See Section 7 for the per-phase state.
 
 ## 1. What is on source.coop under `ismip/`
 
@@ -226,25 +226,34 @@ Two separate things were being called "validator".
 - Profile `engine="rustytree"` against `engine="zarr"` in the notebooks; report cold-open time versus number of groups, since that is the number that grows with the dataset.
 - File any rustytree issues upstream to `aladinor/rustytree`; manifest-split repos are a likely first one.
 
-## 7. Sequencing
+## 7. Sequencing and status
 
-Hours are against the SOW ranges (Task 1: 32–48 h, Task 2: 24–32 h, 80 h ceiling). About 8 h are spent so far on the survey, the conventions models and the indexer.
+Hours are against the SOW ranges (Task 1: 32–48 h, Task 2: 24–32 h, 80 h ceiling). About 14 h are spent so far (survey and documents, conventions models and indexer, Phases A–C, the viewer spike, the ISMIP6 fix script).
 
-Each phase is implemented, then reviewed adversarially by a clean-context Opus agent that sees the code but not the author's reasoning, then the review is folded in by a second Opus pass; the fold commit records what was accepted and what was declined and why.
+Each phase is implemented, then reviewed adversarially by a clean-context Opus agent that sees the code but not the author's reasoning, then the review is folded in by a second Opus pass; the fold commit and `docs/reviews/` record what was accepted and what was declined and why.
 
-**Before the first cloud run (local, no credentials needed):**
+### Done before the first cloud run (local, no credentials)
 
-1. Phase A, `virtualize.py` (done, under review): open yearly files with VirtualiZarr, drop bounds and lat/lon, load coords, re-encode time to `days since 1850-01-01` / `standard` from any source calendar, verify x/y against the standard grid and replace them, attach a correct `crs`, strip tool chatter from attrs, record provenance; concatenate a group's files along time and merge its variables with a strict same-axis check. Tested on synthetic files on the 32 km / 16 km grids and, under the `network` marker, on real files.
-   Phase B, `store.py`: Icechunk 2 repo creation with the manifest-splitting config, virtual chunk container for `s3://us-west-2.opendata.source.coop/ismip/`, write-with-rebase, group attrs from the product READMEs and the protocol spreadsheet.
-2. `ismip7-virtualize --local` run on three groups of different shape: AIS 8 km SMB (one chunk per step), GrIS 1 km SMB (four), AIS ocean (4-D, ~5,000 refs per file). Byte-for-byte chunk comparison against the source files; measure manifest sizes and cold-open time with `engine="zarr"` and `engine="rustytree"`.
-3. Lambda runtime: a plain container image with the package, invoked with `boto3` from a `concurrent.futures` fan-out (no Lithops). Testable locally with the same handler.
-4. Notebook skeletons: open the store, subset, plot, profile.
+| Item | State | Where |
+|---|---|---|
+| Conventions models, indexer, report, spreadsheet cross-check | done | `ismip7_helper/conventions/`, `index.py`, `report.py`, `docs/conventions_report.md` |
+| Phase A: virtualize one file, concatenate a group | done; reviewed (13 findings) and folded | `virtualize.py`, `docs/reviews/phase-a-review.md` |
+| Phase B: Icechunk repo config (spec v2, time-split manifests, anonymous source container), write-with-rebase, verifier, serial runner | done; adversarial review in progress, fold next | `store.py`, `pipeline.py` |
+| Phase C: Lambda handler (one group per invocation, process pool), boto3 fan-out, container image, deployment and cost notes | done; review queued behind the Phase B fold | `lambda_handler.py`, `fanout.py`, `Dockerfile.lambda`, `docs/lambda.md` |
+| Handler exercised on real data | 12 real files, 4 processes, written and verified in 10.9 s | local |
+| gridlook catalog generator | done (86 AIS / 132 GrIS entries) | `catalog.py` |
+| Dev-store viewer spike: icechunk-js in Node and hosted gridlook in headless Chromium on a six-file real-data store | done, both read the store unchanged | `scripts/dev/`, `docs/images/` |
+| ISMIP6 store CRS fix | script and tests done; dry run on the real store: 1,317 groups, 180 need a `crs` created | `scripts/fix_ismip6_crs.py` |
 
-Target: steps 1–3 ready for review by Monday, so the cloud run can be configured the same day. Estimated 12–16 h.
+Still local and not yet done: the `ismip7-virtualize --local` runs on the three group shapes (GrIS 1 km SMB and AIS ocean beyond the 8 km SMB subset), manifest-size and cold-open measurements with `engine="zarr"` versus `engine="rustytree"`, and the notebook skeletons. These are next after the Phase B and C folds.
 
-**First cloud run (needs credentials):** build the Lambda image, run the AIS 8 km and GrIS 4 km products into `englacial/ismip7/icechunk-ais` and `icechunk-gris` as dev stores, measure, then the rest in the ingestion order of Section 3. Estimated 12–20 h including debugging, annotation, validation and the notebooks, so Task 1 lands at 32–44 h.
+### First cloud run (Monday; needs credentials)
 
-**Task 2, overlapping the Task 1 debug phase:** gridlook fork and catalog generator, Pages deploy, the ISMIP6 metadata commit, `ismip-viewer` pointed at the new store, icechunk-js fixes as needed, README. Estimated 20–28 h.
+Build and push the Lambda image, create the function (`docs/lambda.md`), run one group (`CESM2-WACCM/historical/SDBN1-8000m`) into `englacial/ismip7/icechunk-ais` with `--verify 1`, open it in gridlook via the catalog, then the AIS 8 km and GrIS 4 km products, measure, then the rest in the ingestion order of Section 3. Estimated 12–20 h including debugging, annotation, validation and the notebooks, so Task 1 lands at about 32–44 h.
+
+### Task 2, overlapping the Task 1 debug phase
+
+gridlook fork under englacial with the generated catalogs as default, Pages deployment, applying the ISMIP6 CRS fix (`--apply` with the write credentials), `ismip-viewer` pointed at the new store, icechunk-js fixes as needed, README. The spike showed the primary path needs no viewer code changes, so this is mostly configuration and deployment. Estimated 16–24 h.
 
 Remaining margin: 4–8 h for upstream reports and review comments.
 
@@ -259,7 +268,8 @@ Decided:
 - Lambda without Lithops; `boto3` fan-out.
 - Conventions models now (done); submission checker contributions deferred to SOW 2.
 - Viewer: gridlook fork with generated catalogs as the primary path; ISMIP6 store made gridlook-native by a metadata commit; `ismip-viewer` kept working as best effort.
-- Credentials and the Lambda role are provisioned when the pipeline is ready to test, planned for Monday.
+- Credentials and the Lambda role are provisioned when the pipeline is ready to test, planned for Monday. The pipeline is ready; the Phase B and C review folds will land before then.
+- One Lambda invocation per group with a process pool (threads give 2x, processes scale with cores); the largest groups (ssp runs of the 2 km / 1 km SMB products, ~3,100 files) are near the 15-minute limit and may need splitting.
 
 Open:
 

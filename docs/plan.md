@@ -1,6 +1,8 @@
 # ISMIP7 virtualization and viewer: findings and plan
 
-Prepared 2026-10-31 against SOW No. 1 (draft, 80 h ceiling). Everything below about the data was measured directly from the public `us-west-2.opendata.source.coop` bucket (anonymous S3 listing plus HDF5 header reads of ~25 representative files); everything about conventions comes from the ISMIP7 protocol page and the ISMIP GitHub repositories cited inline. The protocol overview spreadsheet (AISFileVersion / GrISFileVersion tabs, status log) and the website's variable request have been fetched and cross-checked against the bucket (Section 1d). The cheat sheet (August 2026), the filenames-and-conventions document (June 2026, revised 27 August), the Globus manual and the two ocean focus-group documents have also been read; the forcing-file conventions in Section 1e come from the second of these.
+Revised 2026-10-31 against SOW No. 1 (draft, 80 h ceiling). Everything about the data was measured directly from the public `us-west-2.opendata.source.coop` bucket (anonymous S3 listing of all 285,752 keys plus HDF5 header reads of ~25 representative files). Everything about conventions comes from the ISMIP7 protocol page, the documents it links (cheat sheet, filenames-and-conventions document, protocol overview spreadsheet, Globus manual, ocean focus-group protocols, submission README template) and the ISMIP GitHub repositories, all cited inline and in the reference list. The conventions are implemented and tested in this repository (`ismip7_helper.conventions`); the cross-checks referred to below are tests in `tests/`.
+
+Status: Section 5 (conventions models and indexer) is done. The next step is the virtualization pipeline, developed and tested locally against the public bucket so that the first cloud run can be set up once credentials are provisioned (planned for Monday).
 
 ## 1. What is on source.coop under `ismip/`
 
@@ -73,34 +75,7 @@ Metadata inconsistencies found in the sample (there will be more):
 - Units are inconsistent in spelling (`m`, `meter`, `meters`; `degC`, `deg_C`).
 - Variable names with hyphens (`acabf-anomaly`, `tas-anomaly`) are legal in Zarr but awkward in xarray/CF; keep them as array names but expect tooling friction.
 
-### 1d. Cross-check against the ISMIP7 protocol spreadsheet
-
-The protocol overview spreadsheet linked from the protocol page (https://docs.google.com/spreadsheets/d/1bNXSkOgYxe96JX9o4bVNAhmpd0qal3UDehACXpRINgs, "Updated July 17", status log through the week of 4 October 2026) lists, per region, ESM, experiment and product, every forcing variable with its version and Globus path. Extracted into `ismip7_helper/conventions/data/protocol_inventory_2026-10.csv` (1,120 entries) and compared with the bucket listing (`tests/test_full_listing.py::test_bucket_matches_protocol_spreadsheet`):
-
-- Every spreadsheet entry exists in the bucket, and every version number matches (v3 for GrIS SDBN1 `acabf`/`mrro` and derivatives, v2 for `ts`/`sgd`, v2 for AIS SDBN1, v1 for dEBM2, v3 for AIS ocean, v2 for GrIS ocean, v1 for OCX EN4). So the bucket is a faithful mirror of the Globus "official" inventory, not a stale copy.
-- The bucket holds 417 (dataset, variable) combinations the spreadsheet does not itemise: the `pr`, `tas`, `tas-anomaly` and `extra/` entries it only mentions in prose; the `mrro-anomaly`/`pr-anomaly` fields in `ctrl`; the whole `ssp245` scenario; and the four AIS OCX ocean pathways (`main`, `cold`, `warm`, `vary`; the spreadsheet says "the one to use" is `main`).
-- Globus keeps a trailing version directory (`.../SDBN1-1000m/acabf/v3/<file>`); source.coop folds it into the filename. Our parser already takes the version from the filename.
-- The spreadsheet labels dEBM2 "ONLY USE IF INTERESTED IN SENSITIVITY": SDBN1 is the primary atmosphere product and dEBM2 the secondary downscaling. GEMB-SDBN1 is the MRI-ESM2-0 atmosphere product (status log: "file renaming for MRI-ESM2-0 atmosphere fields from SDBN1 to GEMB-SDBN1", week of 27 July). Store attrs should carry that.
-- The CORE/ESM set counters are fixed: C001–C011 as in the UAF submission; E001/E002 are ssp534-over for CESM2-WACCM/MRI-ESM2-0, E003–E012 are historical+ssp370 for ACCESS-CM2, CanESM5, GFDL-ESM4, IPSL-CM6A-LR, MPI-ESM1-2-HR. That is why those five ESMs only have historical and ssp370 forcing.
-- The website's variable request (sheet "ISM_2026") differs from the checker's CSV: it has eight variables the checker lacks (`pr`, `mrro`, `prra`, `snicem`, `snicefreez`, `sbl`, `tas` for models that compute their own SMB, and `tfbase`), and the checker has `thdrflf` where the website has `tfbase`. Files named with the website-only variables are a warning in our models, not an error, but the checker will refuse them until its CSV is updated. Worth raising with the checker maintainers.
-
-### 1e. The written forcing-file conventions
-
-"ISMIP7 filenames and conventions" (19 June 2026, revised 27 August 2026; PDF linked from the protocol page) has a section "Conventions for climate forcing files" that the bucket follows:
-
-- NetCDF4, one main variable per file, filename starts with the variable name; files hold one year (possibly monthly) up to several years, chosen for distribution size.
-- Directory levels for model, scenario, variant (downscaling or interpolation method, with resolution, e.g. `SDBN1-1000m` vs `SDBN1-4000m`), version; the filename collects the directory names in order, version second to last, year or year range last; no underscores inside a component; scenarios lower case; the ice sheet as `_GrIS_` / `_AIS_`.
-- CMIP-derived climatology and bias go under `extras/`; observation-derived ones under `obs/` (the melt-calibration and observations products on source.coop are the `obs/`, `meltmip/` and `parameterisations/` trees of that layout).
-- The ESM variant (`r1i1p1f1`) is in the metadata unless several members are used, in which case it goes in the filename. (None of the bucket's filenames carry it.)
-- Filenames must be unique across the tree: "a file with the same filename anywhere in the directory structure has the same content". That is the property that makes virtual references safe to key by filename.
-
-This also explains the one stray file in the bucket: `sa_CESM2-WACCM_climatology_r1i1p1f1_ismip8km_60m_1850_199501-201412.nc` is the ocean focus group's pre-convention naming (`<var>_<model>_climatology_r1i1p1f1_ismip8km_60m_...`, as listed in their draft protocol document) that was never renamed.
-
-For submissions the same document adds, beyond what the checker enforces today: a mandatory global `crs` attribute (`epsg:3413` or `epsg:3031`), float32 for the time variable and for masks, dimension names exactly `time`, `x`, `y` with 1-D x/y and no lat/lon, output on the ISMIP6 grids at power-of-two kilometre resolutions (1 km finest for GrIS, 2 km for AIS). These are recorded as constants in `models.py` for the SOW 2 checker contribution.
-
-The cheat sheet (August 2026) adds the experiment design that the store should expose as metadata: the control run uses a 2000–2029 climatology built from historical plus ssp126 per ESM and downscaling method, with fracture held at 2015; OCX uses ERA5-downscaled atmosphere (GrIS 1958–2025, AIS 1979–2025), EN4 ocean for GrIS (1950–2025) and the expert-judgement AIS ocean pathways (1950–2025) of which `main` is required for C011 and `cold`/`warm`/`vary` are sensitivity variants; the SMB anomaly reference period is 1960–1989.
-
-### 1c. ISMIP7 submission (output) conventions
+### 1d. ISMIP7 submission (output) conventions
 
 Authoritative sources, all in the `ismip` GitHub organization:
 
@@ -126,6 +101,33 @@ e.g. lithk_GrIS_VUW_PISM1_m001_CESM2-WACCM_f001_ctrl_C001_2015-2300.nc
 - Per-variable fill policy (`forbidden`, `no_ice`, `outside_domain`, ...) and cross-file consistency checks (masks sum, thickness vs mask, orog = base + lithk).
 
 The UAF submission on source.coop (`ismip7-uaf-pism/submitted/GrIS/UAF/PISM/CORE/C001..C011/`) follows this exactly: 38 files per config set plus `compliance_checker_log.txt`. The logs show only two errors per set (a non-standard `scalar_*` file, and one range violation) and that the checker version in use rejected `OCX` as an experiment name (fixed in later checker releases, which accept lower-case `ocx`). This is strong evidence that the community is already converging on checker-clean submissions.
+
+### 1e. Cross-check against the ISMIP7 protocol spreadsheet
+
+The protocol overview spreadsheet linked from the protocol page (https://docs.google.com/spreadsheets/d/1bNXSkOgYxe96JX9o4bVNAhmpd0qal3UDehACXpRINgs, "Updated July 17", status log through the week of 4 October 2026) lists, per region, ESM, experiment and product, every forcing variable with its version and Globus path. Extracted into `ismip7_helper/conventions/data/protocol_inventory_2026-10.csv` (1,120 entries) and compared with the bucket listing (`tests/test_full_listing.py::test_bucket_matches_protocol_spreadsheet`):
+
+- Every spreadsheet entry exists in the bucket, and every version number matches (v3 for GrIS SDBN1 `acabf`/`mrro` and derivatives, v2 for `ts`/`sgd`, v2 for AIS SDBN1, v1 for dEBM2, v3 for AIS ocean, v2 for GrIS ocean, v1 for OCX EN4). So the bucket is a faithful mirror of the Globus "official" inventory, not a stale copy.
+- The bucket holds 417 (dataset, variable) combinations the spreadsheet does not itemise: the `pr`, `tas`, `tas-anomaly` and `extra/` entries it only mentions in prose; the `mrro-anomaly`/`pr-anomaly` fields in `ctrl`; the whole `ssp245` scenario; and the four AIS OCX ocean pathways (`main`, `cold`, `warm`, `vary`; the spreadsheet says "the one to use" is `main`).
+- Globus keeps a trailing version directory (`.../SDBN1-1000m/acabf/v3/<file>`); source.coop folds it into the filename. Our parser already takes the version from the filename.
+- The spreadsheet labels dEBM2 "ONLY USE IF INTERESTED IN SENSITIVITY": SDBN1 is the primary atmosphere product and dEBM2 the secondary downscaling. GEMB-SDBN1 is the MRI-ESM2-0 atmosphere product (status log: "file renaming for MRI-ESM2-0 atmosphere fields from SDBN1 to GEMB-SDBN1", week of 27 July). Store attrs should carry that.
+- The CORE/ESM set counters are fixed: C001–C011 as in the UAF submission; E001/E002 are ssp534-over for CESM2-WACCM/MRI-ESM2-0, E003–E012 are historical+ssp370 for ACCESS-CM2, CanESM5, GFDL-ESM4, IPSL-CM6A-LR, MPI-ESM1-2-HR. That is why those five ESMs only have historical and ssp370 forcing.
+- The website's variable request (sheet "ISM_2026") differs from the checker's CSV: it has eight variables the checker lacks (`pr`, `mrro`, `prra`, `snicem`, `snicefreez`, `sbl`, `tas` for models that compute their own SMB, and `tfbase`), and the checker has `thdrflf` where the website has `tfbase`. Files named with the website-only variables are a warning in our models, not an error, but the checker will refuse them until its CSV is updated. Worth raising with the checker maintainers.
+
+### 1c. The written forcing-file conventions
+
+"ISMIP7 filenames and conventions" (19 June 2026, revised 27 August 2026; PDF linked from the protocol page) has a section "Conventions for climate forcing files" that the bucket follows:
+
+- NetCDF4, one main variable per file, filename starts with the variable name; files hold one year (possibly monthly) up to several years, chosen for distribution size.
+- Directory levels for model, scenario, variant (downscaling or interpolation method, with resolution, e.g. `SDBN1-1000m` vs `SDBN1-4000m`), version; the filename collects the directory names in order, version second to last, year or year range last; no underscores inside a component; scenarios lower case; the ice sheet as `_GrIS_` / `_AIS_`.
+- CMIP-derived climatology and bias go under `extras/`; observation-derived ones under `obs/` (the melt-calibration and observations products on source.coop are the `obs/`, `meltmip/` and `parameterisations/` trees of that layout).
+- The ESM variant (`r1i1p1f1`) is in the metadata unless several members are used, in which case it goes in the filename. (None of the bucket's filenames carry it.)
+- Filenames must be unique across the tree: "a file with the same filename anywhere in the directory structure has the same content". That is the property that makes virtual references safe to key by filename.
+
+This also explains the one stray file in the bucket: `sa_CESM2-WACCM_climatology_r1i1p1f1_ismip8km_60m_1850_199501-201412.nc` is the ocean focus group's pre-convention naming (`<var>_<model>_climatology_r1i1p1f1_ismip8km_60m_...`, as listed in their draft protocol document) that was never renamed.
+
+For submissions the same document adds, beyond what the checker enforces today: a mandatory global `crs` attribute (`epsg:3413` or `epsg:3031`), float32 for the time variable and for masks, dimension names exactly `time`, `x`, `y` with 1-D x/y and no lat/lon, output on the ISMIP6 grids at power-of-two kilometre resolutions (1 km finest for GrIS, 2 km for AIS). These are recorded as constants in `models.py` for the SOW 2 checker contribution.
+
+The cheat sheet (August 2026) adds the experiment design that the store should expose as metadata: the control run uses a 2000–2029 climatology built from historical plus ssp126 per ESM and downscaling method, with fracture held at 2015; OCX uses ERA5-downscaled atmosphere (GrIS 1958–2025, AIS 1979–2025), EN4 ocean for GrIS (1950–2025) and the expert-judgement AIS ocean pathways (1950–2025) of which `main` is required for C011 and `cold`/`warm`/`vary` are sensitivity variants; the SMB anomaly reference period is 1960–1989.
 
 ## 2. Repository decision: new clean repo
 
@@ -168,11 +170,13 @@ Store configuration specifics that matter at this scale:
 ### Pipeline steps
 
 1. **Index** (local, cheap): list the `ismip/` prefix (a 40 MB JSON of 285 k keys was produced in minutes), parse paths into a typed record (see Section 5 on the pydantic model), write Parquet. Reject/flag anything that does not parse; those become the `skip_list`.
-2. **Virtualize per group on Lambda**: for each (ESM, experiment, product), open every yearly file with `virtualizarr` (`HDFParser`; kerchunk fallback for the NetCDF3 observation files), drop bounds variables, load coords inline, normalize time (reuse `time_utils`), override CRS per region (reuse and extend `grid_utils`), concatenate along time with `merge_virtual`, return a manifest.
+2. **Virtualize per group** (locally first, then on Lambda): for each (ESM, experiment, product), open every yearly file with `virtualizarr` (`HDFParser`; kerchunk fallback for the NetCDF3 observation files), drop bounds variables, load coords inline, normalize time (reuse `time_utils`), override CRS per region (reuse and extend `grid_utils`), concatenate along time with `merge_virtual`, return a manifest.
 3. **Write** to Icechunk with rebase, one group per commit; tag a release snapshot.
 4. **Annotate** (`ignore_value`, `valid_min/max`) as in ISMIP6; the SMB fields are zero or fill outside the ice.
 5. **Validate** the store: open every group with `xr.open_datatree(..., engine="rustytree")` and with stock `engine="zarr"`, compare a sample of chunks byte-for-byte against the source files (the `compare_local_remote_store.py` pattern).
 6. **Notebooks**: open with icechunk + xarray, open with rustytree, subset one basin, compute an annual mean, time the cold-open and first-chunk latency per product class (that is the "performance profiling" deliverable). Add a Binder/CryoCloud environment.
+
+The virtualize and write steps take a `--local` mode that reads the public bucket anonymously and writes an Icechunk repo on local disk or to any S3 prefix, so the pipeline is exercised end to end on one group (e.g. `CESM2-WACCM/historical/SDBN1-8000m`, 165 files) before any credentials exist. The same code path, pointed at `englacial/ismip7/`, is the production run.
 
 Order of ingestion, so something useful exists early: AIS 8 km SMB (cheap, one chunk per step) → GrIS 4 km → GrIS 1 km → AIS ocean → AIS 2 km SDBN1 (the reference-count monster) → OCX, climatologies, fracture → observations.
 
@@ -182,7 +186,7 @@ Order of ingestion, so something useful exists early: AIS 8 km SMB (cheap, one c
 - **Egress and Lambda cost**: header reads only, so cheap; ISMIP6 ran in ~6 h of Lambda. Expect roughly 10× the files; budget a few tens of dollars, well inside Line 3.
 - **Upstream metadata fixes.** Report the swapped CRS attributes and the missing `grid_mapping`s to the ISMIP7 forcing group (via `ismip/ismip7-community` discussions) now, and record in the store attrs that the CRS was corrected at ingest.
 - **The `ismip` bucket is not ours.** The store references objects by key; if the ISMIP team republishes a `v3` over a `v2`, our references go stale. Mitigation: record `ETag`/size per source file in the manifest metadata (icechunk `validateChecksums` in icechunk-js and `checksum` in Python can enforce it) and keep the index Parquet in the repo so a diff is one command.
-- Source-coop write credentials: the SOW says the Organization may provision access to its own account; we need the englacial `sc_creds.json` equivalent and an AWS role for Lambda in the Astera account (the ISMIP6 role is `lithops-ismip6-executor`, account `429435741471`).
+- **Credentials come last.** Write credentials for `englacial/ismip7` on source.coop and an AWS role for Lambda in the Astera account (the ISMIP6 role was `lithops-ismip6-executor`, account `429435741471`) are provisioned once the pipeline is ready to test, so everything before that runs locally against the public bucket (Section 7).
 
 ## 4. Task 2 plan: viewer (24–32 h)
 
@@ -201,19 +205,13 @@ Opening `combined/JPL1_ISSM/exp05` shows a `polar_stereographic` coordinate vari
 3. **Keep `ismip-viewer` working** by pointing it at the ISMIP7 store with `store_url`, `group_path`, and the already-supported coordinate-derived grid config. Its hard-coded `DEFAULT_GRID` is the 761×761 AIS grid, but `discoverGridConfig` reads x/y from the store, so GrIS should work. Its hierarchy walker assumes `model/experiment/variable`; the ISMIP7 store is `ESM/experiment/product/variable`, so either pass `group_path=<ESM>/<exp>` and let `product` play the role of "experiment", or add one level to the walker (an afternoon). Upgrade it to icechunk-js 0.6 and drop the `fetchClient` rewrite. This is the "old viewer" path; I would treat it as best-effort, because the MyST/Quarto embed is its real value and that keeps working.
 4. **icechunk-js**: we maintain it, so any gap found here (manifest-split handling for spec v2, large-manifest LRU sizing, dotted-bucket addressing) gets fixed there and released; both viewers pick it up.
 
-## 5. The validator question (and pydantic)
+## 5. Conventions models (done) and the validator question
 
-Two separate things are being called "validator":
+Two separate things were being called "validator".
 
-**A. Submission compliance checker.** This now exists and is official: `ismip/ISM_SimulationChecker` (Python, conda-forge, CSV-driven, six check categories, used by UAF in September). Building a competing one would be wasted effort and politically awkward. What the SOW's deferred "validator" item should become in SOW 2 is a **contribution to the checker**: a "cloud-readiness" check set (HDF5 chunk shape sane, no NetCDF3, compression declared, coordinate dtypes, time encoding exactly as specified, CRS present and correct) plus a `--format json` report, and possibly the submission-portal integration with Xylar. Those are small PRs, not a new tool, and they only pay off once submissions flow. **Defer.**
+**A. Submission compliance checker.** This exists and is official: `ismip/ISM_SimulationChecker` (Python, conda-forge, CSV-driven, six check categories; UAF ran version 0.5.1 on their September submission and uploaded the logs). Building a competing one would be wasted effort and politically awkward. What the SOW's deferred "validator" should become in SOW 2 is a contribution to the checker: a "cloud-readiness" check set (HDF5 chunk shape sane, no NetCDF3, compression declared, coordinate dtypes, time encoding exactly as specified, CRS present and correct) plus a `--format json` report, and the submission-portal integration with Xylar. Two concrete discrepancies to raise there, found during this work: the website's data request lists eight variables the checker's CSV lacks (the own-SMB diagnostics `pr`, `mrro`, `prra`, `snicem`, `snicefreez`, `sbl`, `tas`, and `tfbase`, which the checker spells `thdrflf`); and the filenames-and-conventions document requires a global `crs` attribute that the checker does not check.
 
-**B. A typed schema of the ISMIP7 naming and metadata conventions, in pydantic.** This I would **do now, as the first thing in the new repo**, because the Task 1 pipeline needs it anyway:
-
-- The indexer must parse 285 k paths into (region, ESM, experiment, product, resolution, variable, version, year-or-range) and reject the ones that do not fit. A pydantic model (`ForcingFile`, `SubmissionFile`, `GridSpec`, `Experiment`, `Variable` with ST/FL and fill policy loaded from the checker's CSVs) gives that parser validation, nice error messages, JSON export for the catalog and the index website, and one place where the conventions live.
-- The same models describe the output filename, so when model outputs arrive, the pipeline's index step already understands them. That is exactly the "front-loads the virtualization of the ISMIP7 outputs" argument from the original proposal, delivered at a fraction of the cost.
-- It produces a byproduct worth sharing with the ISMIP7 team: a machine-readable report of every input file that breaks the pattern or carries inconsistent metadata (the CRS swap above would have been caught on day one).
-
-Scope it to ~4–6 h inside Task 1: models, a `parse_path()` function, tests against the real listing, and a short "conventions report" notebook. Do not wrap it in a CLI, do not check file contents beyond headers, and do not call it "the validator" in the deliverables, so it does not look like scope creep against the SOW. If the ISMIP team likes it, the models can later move into the checker or `ismip7-community`.
+**B. Typed conventions models.** Done, as `ismip7_helper.conventions` (pydantic): `ForcingFile` and `SubmissionFile` parsed from any key, `VariableSpec`/`Experiment`/`GridSpec` loaded from the checker's CSVs and grid files, `protocol_inventory()` from the spreadsheet, `GridSpec.cf_grid_mapping_attrs()` for the CRS override, and `parse_key()` which never raises and returns findings. `ismip7-index` writes the parsed bucket to Parquet; `ismip7-conventions-report` writes `docs/conventions_report.md`. 39 tests, including the full-listing parse and the spreadsheet cross-check. The models are also what the submission pipeline will index with when model outputs arrive, which is the "front-load the outputs" argument from the original proposal at a fraction of the cost.
 
 ## 6. Client-side Python access
 
@@ -224,32 +222,52 @@ Scope it to ~4–6 h inside Task 1: models, a `parse_path()` function, tests aga
 - Profile `engine="rustytree"` against `engine="zarr"` in the notebooks; report cold-open time versus number of groups, since that is the number that grows with the dataset.
 - File any rustytree issues upstream to `aladinor/rustytree`; manifest-split repos are a likely first one.
 
-## 7. Suggested sequencing and hours
+## 7. Sequencing
 
-| Week | Work | Hours |
-|---|---|---|
-| 1 | New repo, pydantic conventions + indexer, Lambda runtime, AIS 8 km and GrIS 4 km groups in a dev store, measure manifest sizes | 16–20 |
-| 2 | GrIS 1 km, AIS ocean, AIS 2 km, OCX, climatology, fracture; annotate; validation; notebooks + profiling; publish v1 tag | 16–24 |
-| 2–3 | gridlook fork + catalog + Pages deploy; ISMIP6 store CRS metadata commit; ismip-viewer pointed at the new store; icechunk-js fixes if needed; README | 20–28 |
-| 3 | Buffer: upstream reports, review comments | 4–8 |
+Hours are against the SOW ranges (Task 1: 32–48 h, Task 2: 24–32 h, 80 h ceiling). About 8 h are spent so far on the survey, the conventions models and the indexer.
 
-Total 56–80 h, matching the SOW ranges. The observations and melt-calibration products are small and should be included in Task 1 for completeness (a few hours), but the 9 GB NetCDF3 MIPkit file needs the kerchunk path and will produce one huge virtual chunk per 2-D array; note it in the README as "available but not viewer-friendly" rather than fight it in this SOW.
+**Before the first cloud run (local, no credentials needed):**
 
-## 8. Decisions so far and open items
+1. Pipeline core in `ismip7_helper`: `virtualize.py` (open yearly files with virtualizarr, drop bounds, inline coords, normalise time per calendar/epoch, override CRS from `GridSpec`, concatenate along time) and `store.py` (Icechunk 2 repo creation with the manifest-splitting config, virtual chunk container for `s3://us-west-2.opendata.source.coop/ismip/`, write-with-rebase, group attrs from the product READMEs and the protocol spreadsheet). Ported from `ismip6_helper` with attribution.
+2. `ismip7-virtualize --local` run on three groups of different shape: AIS 8 km SMB (one chunk per step), GrIS 1 km SMB (four), AIS ocean (4-D, ~5,000 refs per file). Byte-for-byte chunk comparison against the source files; measure manifest sizes and cold-open time with `engine="zarr"` and `engine="rustytree"`.
+3. Lambda runtime: a plain container image with the package, invoked with `boto3` from a `concurrent.futures` fan-out (no Lithops). Testable locally with the same handler.
+4. Notebook skeletons: open the store, subset, plot, profile.
 
-- Repo: `englacial/ismip7-indexing` (created). Target prefix: `englacial/ismip7` on source.coop. Conventions models: done (see README and `docs/conventions_report.md`).
-- Still needed: write credentials for `englacial/ismip7` and an AWS role in the Astera account for Lambda (or reimbursable compute). All protocol documents are now in hand.
-- Upstream report of the CRS swap: to the forcing producers / ISMIP7 (GitHub discussions), with the conventions report attached; your call on timing.
+Target: steps 1–3 ready for review by Monday, so the cloud run can be configured the same day. Estimated 12–16 h.
+
+**First cloud run (needs credentials):** build the Lambda image, run the AIS 8 km and GrIS 4 km products into `englacial/ismip7/icechunk-ais` and `icechunk-gris` as dev stores, measure, then the rest in the ingestion order of Section 3. Estimated 12–20 h including debugging, annotation, validation and the notebooks, so Task 1 lands at 32–44 h.
+
+**Task 2, overlapping the Task 1 debug phase:** gridlook fork and catalog generator, Pages deploy, the ISMIP6 metadata commit, `ismip-viewer` pointed at the new store, icechunk-js fixes as needed, README. Estimated 20–28 h.
+
+Remaining margin: 4–8 h for upstream reports and review comments.
+
+The observations and melt-calibration products are small and go into the AIS store for completeness, but the 9 GB NetCDF3 MIPkit file needs the kerchunk path and yields one huge virtual chunk per 2-D array; it is documented as "available but not viewer-friendly" rather than fought in this SOW.
+
+## 8. Decisions and open items
+
+Decided:
+
+- Repository `englacial/ismip7-indexing` (this one), MIT, `ismip-indexing` frozen as the ISMIP6 record.
+- Target prefix `englacial/ismip7` on source.coop; one Icechunk repo per region; spec v2.
+- Lambda without Lithops; `boto3` fan-out.
+- Conventions models now (done); submission checker contributions deferred to SOW 2.
+- Viewer: gridlook fork with generated catalogs as the primary path; ISMIP6 store made gridlook-native by a metadata commit; `ismip-viewer` kept working as best effort.
+- Credentials and the Lambda role are provisioned when the pipeline is ready to test, planned for Monday.
+
+Open:
+
+- Whether to report the CRS swap, the missing `grid_mapping`s, the stray filename and the website/checker variable discrepancy to ISMIP now or after the first store exists.
+- Whether the AIS 2 km SDBN1 products get their own repo, decided after measuring the 8 km store.
+- Whether icechunk 2.x can write to the spec-v1 ISMIP6 store in place or it needs an upgrade step (checked during Task 2).
 
 ## References
 
 - ISMIP7 compliance checker: https://github.com/ismip/ISM_SimulationChecker (docs https://ismip.github.io/ISM_SimulationChecker/; files `isschecker/data/ISMIP7_variable_request.csv`, `experiments_ismip7.csv`, `data/gdfs/*.txt`, `docs/user/checks.md`, `docs/user/time-encoding.md`, `docs/user/errors-and-warnings.md`)
-- ISMIP7 file and directory conventions: https://github.com/ismip/ismip7-scalar-processing (`docs/user/file-conventions.md`, README)
+- ISMIP7 submission file and directory conventions as the processing tools read them: https://github.com/ismip/ismip7-scalar-processing (`docs/user/file-conventions.md`, README)
 - ISMIP7 regridding and archive layout: https://github.com/ismip/ismip7-interpolation
 - ISMIP7 time encoding: https://github.com/ismip/ismip7-time-encoding
 - ISMIP7 Antarctic ocean forcing generator (defines the `ocean` product files): https://github.com/ismip/ismip7-antarctic-ocean-forcing (`docs/user/workflows.md`)
 - ISMIP7 community scripts (cloud/source.coop folder): https://github.com/ismip/ismip7-community
-- ISMIP7 protocol page (not fetched; from search): https://www.ismip.org/research/ismip7
 - Basal melt calibration protocol preprint (mentions Globus distribution and the 8 km ocean grid): https://egusphere.copernicus.org/preprints/2026/egusphere-2026-5337/egusphere-2026-5337.pdf
 - Product READMEs read from the bucket: `ismip/ismip7-ais-melt-calibration/data/README.md`, `ismip/ismip7-ais-observations/data/README.md` and sub-READMEs (licences and citations per directory)
 - UAF PISM submission and checker logs: `s3://us-west-2.opendata.source.coop/ismip/ismip7-uaf-pism/submitted/GrIS/UAF/PISM/CORE/C0xx/`

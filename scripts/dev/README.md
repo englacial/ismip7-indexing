@@ -7,6 +7,7 @@ virtual chunks point at the public source.coop bucket (no credentials needed).
    ```python
    from ismip7_helper.virtualize import source_registry, concat_group
    from ismip7_helper.store import StoreTarget, open_repository, write_group
+
    # files: a subset of ForcingFile records from the index
    g = concat_group(files, source_registry())
    repo = open_repository(StoreTarget(url="local:/path/devstore/icechunk-ais"), create=True)

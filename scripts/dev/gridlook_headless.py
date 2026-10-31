@@ -6,7 +6,6 @@ Usage: python gridlook_headless.py <dataset_url_with_params> <screenshot.png> [s
 import os
 import sys
 import time
-from urllib.parse import quote
 
 from playwright.sync_api import sync_playwright
 
@@ -41,4 +40,8 @@ print("\n".join(console[-40:]))
 print("=== request failures")
 print("\n".join(failures[-20:]) or "none")
 print("=== data requests (local + s3)")
-print("\n".join(r for r in requests if "127.0.0.1" in r or "amazonaws" in r or "source.coop" in r)[-3000:])
+print(
+    "\n".join(r for r in requests if "127.0.0.1" in r or "amazonaws" in r or "source.coop" in r)[
+        -3000:
+    ]
+)

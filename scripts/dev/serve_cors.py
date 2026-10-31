@@ -4,8 +4,8 @@ Usage: python serve_cors.py <directory> <port>
 """
 
 import sys
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 
 class CORSRangeHandler(SimpleHTTPRequestHandler):
@@ -13,7 +13,9 @@ class CORSRangeHandler(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "*")
-        self.send_header("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, ETag")
+        self.send_header(
+            "Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, ETag"
+        )
         self.send_header("Accept-Ranges", "bytes")
         super().end_headers()
 
@@ -50,9 +52,11 @@ class CORSRangeHandler(SimpleHTTPRequestHandler):
         return io.BytesIO(data)
 
     def log_message(self, fmt, *args):
-        sys.stderr.write("%s %s\n" % (self.command, self.path))
+        sys.stderr.write(f"{self.command} {self.path}\n")
 
 
 if __name__ == "__main__":
     directory, port = sys.argv[1], int(sys.argv[2])
-    ThreadingHTTPServer(("127.0.0.1", port), partial(CORSRangeHandler, directory=directory)).serve_forever()
+    ThreadingHTTPServer(
+        ("127.0.0.1", port), partial(CORSRangeHandler, directory=directory)
+    ).serve_forever()

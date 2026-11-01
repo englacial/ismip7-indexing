@@ -67,6 +67,20 @@ Parsing never raises: every key yields a `ParseResult` with a list of
 `FileFinding`s (error / warning / info), so a whole-bucket parse produces a
 report rather than a traceback.
 
+## Reading the stores from Python
+
+```python
+from ismip7_helper.access import open_group, open_store, list_groups
+
+ds = open_group("AIS", "CESM2-WACCM/ssp585/SDBN1-8000m")   # one group, xarray Dataset
+dt = open_store("GrIS", engine="rustytree")               # whole store as a DataTree
+```
+
+`notebooks/` has executable examples (open and use, rustytree, performance
+profile); regenerate them with `python notebooks/make_notebooks.py` and run
+them against a local dev store with `ISMIP7_STORE_AIS=local:/path/icechunk-ais
+python notebooks/make_notebooks.py --execute`.
+
 ## Index and report
 
 ```bash

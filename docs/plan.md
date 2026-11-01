@@ -269,7 +269,7 @@ Decided:
 - Conventions models now (done); submission checker contributions deferred to SOW 2.
 - Viewer: gridlook fork with generated catalogs as the primary path; ISMIP6 store made gridlook-native by a metadata commit; `ismip-viewer` kept working as best effort.
 - Credentials and the Lambda role are provisioned when the pipeline is ready to test, planned for Monday. The pipeline is ready; the Phase B and C review folds will land before then.
-- One Lambda invocation per group with a process pool (threads give 2x, processes scale with cores); the largest groups (ssp runs of the 2 km / 1 km SMB products, ~3,100 files) are near the 15-minute limit and may need splitting.
+- One Lambda invocation per group with pipe-connected worker processes (Lambda has no `/dev/shm`, so Python's semaphore-based pools fail there). The largest groups (ssp runs of the SMB products, ~3,100 files) may exceed the 15-minute limit; the fan-out defers groups whose estimate exceeds `--max-lambda-seconds` and lists them. The per-file time must be measured in-region on the first run (the sandbox figure of 1.2 s is inflated by proxy latency). Decided 2026-11-01: if the ceiling is real, the fallback is one invocation per group *and variable* (165–286 files), with the fan-out pre-creating each group's coordinate arrays and each worker committing only its own data array, plus a final cross-variable time-axis check. Not an EC2 box.
 
 Open:
 

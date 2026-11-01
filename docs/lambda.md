@@ -124,6 +124,20 @@ needs a lower `--max-lambda-seconds` or a big machine.
    aws lambda put-function-concurrency --function-name ismip7-virtualize --reserved-concurrent-executions 50
    ```
 
+## Verified under the Runtime Interface Emulator (2026-11-01)
+
+The image built from `Dockerfile.lambda` (1.19 GB, linux/amd64) was run under
+the Lambda Runtime Interface Emulator as uid 1000 with `/dev/shm` mounted
+read-only (the conditions that broke the earlier process pool), and invoked
+with a real six-file event against a mounted local target repository:
+init 0.7 s; four pipe-connected worker processes opened the files in 4.1 s
+(reads of the public bucket through the sandbox proxy); commit 5.0 s;
+verification passed; INFO notes reached the log; the result record carried
+`cpu_count`, `n_workers` and `timings`. `scripts/dev/rie_run.sh` repeats this.
+The per-file time inside the container was about 0.7 s with four workers,
+measured from a sandbox far from us-west-2; the in-region figure is still to
+be measured on the first real invocation and fed back as `--seconds-per-file`.
+
 ## Running
 
 Run the fan-out from an EC2 instance or AWS CloudShell in us-west-2 rather

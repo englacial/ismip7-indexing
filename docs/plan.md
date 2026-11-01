@@ -165,7 +165,7 @@ Store configuration specifics that matter at this scale:
 
 - Set `ManifestSplittingConfig` so each array's manifest is split along time (`MANIFEST_SPLIT_CHUNKS = 120` chunks along `time`, which is 120 timesteps for the one-step-per-chunk products). Preloading is left at the default: it only applies to coordinate-like arrays, so raising `max_total_refs` does nothing for the data arrays. Otherwise the 2 km SDBN1 arrays produce single manifests of tens of MB that every client (including icechunk-js in the browser) must download before reading one timestep.
 - Keep `virtual_chunk_location_compression` on (default); the paths are extremely repetitive and compress well.
-- Create the repository and every parent group in one commit before fanning out (`ensure_hierarchy`; concurrent creations of the same new node cannot rebase), then write with `rebase_with=ConflictDetector()`; one commit per group, groups written in parallel from Lambda (the pattern in `lithops_aws.md`).
+- Create the repository and every parent group in one commit before fanning out (`ensure_hierarchy`; concurrent creations of the same new node cannot rebase), then write with `rebase_with=ConflictDetector()`; one commit per group, groups written in parallel from Lambda (the pattern in `lithops_aws.md`); groups estimated over ~700 s (the ssp SMB products, ~3,100 files) go to `ismip7-virtualize --workers` on one big instance instead.
 
 ### Pipeline steps
 
@@ -239,17 +239,17 @@ Each phase is implemented, then reviewed adversarially by a clean-context Opus a
 | Conventions models, indexer, report, spreadsheet cross-check | done | `ismip7_helper/conventions/`, `index.py`, `report.py`, `docs/conventions_report.md` |
 | Phase A: virtualize one file, concatenate a group | done; reviewed (13 findings) and folded | `virtualize.py`, `docs/reviews/phase-a-review.md` |
 | Phase B: Icechunk repo config (spec v2, time-split manifests, anonymous source container), write-with-rebase, verifier, serial runner | done; reviewed (16 findings) and folded | `store.py`, `pipeline.py`, `docs/reviews/phase-b-review.md` |
-| Phase C: Lambda handler (one group per invocation, process pool), boto3 fan-out, container image, deployment and cost notes | done; review queued behind the Phase B fold | `lambda_handler.py`, `fanout.py`, `Dockerfile.lambda`, `docs/lambda.md` |
+| Phase C: Lambda handler (one group per invocation, semaphore-free process pool), boto3 fan-out with big-group deferral, container image, deployment and cost notes | done; reviewed (10 findings) and folded | `lambda_handler.py`, `fanout.py`, `Dockerfile.lambda`, `docs/lambda.md`, `docs/reviews/phase-c-review.md` |
 | Handler exercised on real data | 12 real files, 4 processes, written and verified in 10.9 s | local |
 | gridlook catalog generator | done (86 AIS / 132 GrIS entries) | `catalog.py` |
 | Dev-store viewer spike: icechunk-js in Node and hosted gridlook in headless Chromium on a six-file real-data store | done, both read the store unchanged | `scripts/dev/`, `docs/images/` |
 | ISMIP6 store CRS fix | script and tests done; dry run on the real store: 1,317 groups, 180 need a `crs` created | `scripts/fix_ismip6_crs.py` |
 
-Still local and not yet done: the `ismip7-virtualize --local` runs on the three group shapes (GrIS 1 km SMB and AIS ocean beyond the 8 km SMB subset), manifest-size and cold-open measurements with `engine="zarr"` versus `engine="rustytree"`, and the notebook skeletons. These are next after the Phase C fold.
+Still local and not yet done: the `ismip7-virtualize --local` runs on the three group shapes (GrIS 1 km SMB and AIS ocean beyond the 8 km SMB subset), manifest-size and cold-open measurements with `engine="zarr"` versus `engine="rustytree"`, and the notebook skeletons. These are next.
 
 ### First cloud run (Monday; needs credentials)
 
-Build and push the Lambda image, create the function (`docs/lambda.md`), run one group (`CESM2-WACCM/historical/SDBN1-8000m`) into `englacial/ismip7/icechunk-ais` with `--verify 1`, open it in gridlook via the catalog, then the AIS 8 km and GrIS 4 km products, measure, then the rest in the ingestion order of Section 3. Estimated 12–20 h including debugging, annotation, validation and the notebooks, so Task 1 lands at about 32–44 h.
+Build and push the Lambda image, run it once under the Runtime Interface Emulator with no writable `/dev/shm`, create the function (`docs/lambda.md`), run one group (`CESM2-WACCM/historical/SDBN1-8000m`) into `englacial/ismip7/icechunk-ais` with `--verify 1`, measure seconds per file on Lambda from its report and re-plan with `--seconds-per-file` (the ssp SMB groups are deferred to `ismip7-virtualize --workers` on a big EC2 instance), open it in gridlook via the catalog, then the AIS 8 km and GrIS 4 km products, measure, then the rest in the ingestion order of Section 3. Estimated 12–20 h including debugging, annotation, validation and the notebooks, so Task 1 lands at about 32–44 h.
 
 ### Task 2, overlapping the Task 1 debug phase
 

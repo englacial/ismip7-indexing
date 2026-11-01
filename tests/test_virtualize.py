@@ -463,6 +463,82 @@ def test_grid_registry_small_grids_exist():
     assert g[("GrIS", 16000)].shape == (181, 106)
 
 
+# --------------------------------------------------------------------------- process pool
+
+
+def _pool_group(root, n=6):
+    keys = [_key(year=y) for y in range(1850, 1850 + n)]
+    urls = {k: _write(root, k, seed=i) for i, k in enumerate(keys)}
+    return [parse_key(k, 1000).forcing for k in keys], urls
+
+
+@pytest.fixture
+def no_semaphores(monkeypatch):
+    """What Lambda looks like: no /dev/shm, so every POSIX semaphore fails with ENOSYS."""
+    import _multiprocessing
+    import errno
+
+    class NoSemLock:
+        SEM_VALUE_MAX = _multiprocessing.SemLock.SEM_VALUE_MAX
+
+        def __init__(self, *a, **kw):
+            raise OSError(errno.ENOSYS, "Function not implemented")
+
+    monkeypatch.setattr(_multiprocessing, "SemLock", NoSemLock)
+
+
+def test_process_pool_needs_no_semaphores(synthetic_root, no_semaphores, caplog):
+    import multiprocessing
+
+    with pytest.raises(OSError, match="Function not implemented"):
+        multiprocessing.get_context("forkserver").Lock()  # the mock bites
+    files, urls = _pool_group(synthetic_root)
+    g = concat_group(files, urls=urls, max_workers=3, use_processes=True)
+    assert g.n_files == 6 and g.ds.sizes["time"] == 72
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]  # no thread fallback
+
+
+def test_process_pool_matches_threads_and_reports_errors(synthetic_root):
+    files, urls = _pool_group(synthetic_root, n=4)
+    procs = concat_group(files, urls=urls, max_workers=2, use_processes=True)
+    threads = concat_group(files, urls=urls, max_workers=2)
+    assert procs.ds.identical(threads.ds)
+    bad = dict(urls)
+    bad[files[2].key] = f"file://{synthetic_root}/missing.nc"
+    with pytest.raises(VirtualizeError, match="cannot open"):
+        concat_group(files, urls=bad, max_workers=2, use_processes=True)
+
+
+def test_process_pool_falls_back_to_threads_when_processes_cannot_start(
+    synthetic_root, monkeypatch, caplog
+):
+    import errno
+    import multiprocessing.process
+
+    def refuse(self):
+        raise OSError(errno.EACCES, "no processes here")
+
+    monkeypatch.setattr(multiprocessing.process.BaseProcess, "start", refuse)
+    files, urls = _pool_group(synthetic_root, n=3)
+    with caplog.at_level("WARNING"):
+        g = concat_group(files, urls=urls, max_workers=2, use_processes=True)
+    assert g.n_files == 3
+    assert any("cannot start worker processes" in r.getMessage() for r in caplog.records)
+
+
+def test_process_pool_refuses_an_injected_registry(synthetic_root, local_registry):
+    files, urls = _pool_group(synthetic_root, n=2)
+    with pytest.raises(ValueError, match="registry cannot be passed"):
+        concat_group(files, local_registry, urls=urls, max_workers=2, use_processes=True)
+
+
+def test_registry_is_cached_per_process():
+    from ismip7_helper.virtualize import _cached_registry
+
+    assert _cached_registry(True) is _cached_registry(True)
+    assert _cached_registry(False) is not _cached_registry(True)
+
+
 # --------------------------------------------------------------------------- network
 
 

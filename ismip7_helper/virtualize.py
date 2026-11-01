@@ -29,8 +29,10 @@ is how xarray stores and decodes the CF fill value for Zarr v3.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
+import pickle
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -550,7 +552,7 @@ def _concat_variable(group_path: str, var: str, items: list[OpenedFile]) -> xr.D
 
 def concat_group(
     files: Sequence[ForcingFile],
-    registry,
+    registry=None,
     *,
     urls: dict[str, str] | None = None,
     opened: Iterable[OpenedFile] | None = None,
@@ -562,8 +564,18 @@ def concat_group(
 
     Files are opened in a pool of ``max_workers``: threads by default, or
     processes with ``use_processes`` (HDF header parsing is CPU-bound in
-    Python; threads give about 2x, processes scale with cores). A 1,800-file
+    Python; threads give about 2x, six processes about 3.9x). A 1,800-file
     group takes about 1.2 s per file serially.
+
+    The process pool is plain ``Process`` + ``Pipe`` workers (no semaphores,
+    so it runs where ``/dev/shm`` is missing, as on Lambda); see
+    :func:`_open_with_processes`. Each process builds its own registry for
+    the URLs it reads, so ``registry`` cannot be combined with
+    ``use_processes`` (a :class:`ValueError`). With ``registry=None`` the
+    thread and serial paths use the same per-process cached registries
+    (source bucket, or ``file://`` when the URL is local). If the processes
+    cannot be started at all, the files are opened in threads instead, with
+    a warning.
 
     ``files`` are all the forcing files of one ``group_path`` (any order).
     Each variable's files must share one version and be contiguous in years;
@@ -588,32 +600,38 @@ def concat_group(
         raise VirtualizeError(f"files span several groups: {sorted(group_paths)}")
     (group_path,) = group_paths
 
+    if use_processes and registry is not None:
+        raise ValueError(
+            "concat_group: a registry cannot be passed to worker processes; "
+            "use registry=None with use_processes=True (each process builds its own)"
+        )
     if opened is None:
+        url_of = urls or {}
 
         def _open(f: ForcingFile) -> OpenedFile:
-            return open_forcing_file(f.key, registry, url=(urls or {}).get(f.key), size=f.size)
+            url = url_of.get(f.key)
+            reg = registry if registry is not None else _cached_registry(_is_local_url(url))
+            return open_forcing_file(f.key, reg, url=url, size=f.size)
 
         if max_workers > 1 and use_processes:
-            import multiprocessing
-            from concurrent.futures import ProcessPoolExecutor
-
-            # processes cannot share the registry object; each builds its own.
-            # forkserver, not fork: the caller may already run icechunk/obstore
-            # runtime threads (a warm Lambda, an opened repository), and a
-            # forked child of a threaded process can deadlock.
-            ctx = multiprocessing.get_context("forkserver")
-            with ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx) as pool:
-                opened = list(
-                    pool.map(
-                        _open_in_process, [(f.key, f.size, (urls or {}).get(f.key)) for f in files]
-                    )
+            try:
+                opened = _open_with_processes(
+                    [(f.key, f.size, url_of.get(f.key)) for f in files], max_workers
                 )
-        elif max_workers > 1:
+            except PoolStartError as e:
+                logger.warning(
+                    "%s: cannot start worker processes (%s); opening %d files in %d threads",
+                    group_path,
+                    e,
+                    len(files),
+                    max_workers,
+                )
+        if opened is None and max_workers > 1:
             from concurrent.futures import ThreadPoolExecutor
 
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
                 opened = list(pool.map(_open, files))
-        else:
+        elif opened is None:
             opened = [_open(f) for f in files]
     opened = list(opened)
     if {o.forcing.key for o in opened} != {f.key for f in files} or len(opened) != len(files):
@@ -686,11 +704,131 @@ def concat_group(
     )
 
 
+def _is_local_url(url: str | None) -> bool:
+    return bool(url and url.startswith("file://"))
+
+
+@functools.cache
+def _cached_registry(local: bool):
+    """One registry (and so one object-store client) per process and kind of URL."""
+    return local_registry() if local else source_registry()
+
+
 def _open_in_process(args: tuple[str, int | None, str | None]) -> OpenedFile:
-    """Worker for process pools: opens one file with a fresh registry (source or local)."""
+    """Open one file in a worker process with that process's cached registry."""
     key, size, url = args
-    registry = local_registry() if url and url.startswith("file://") else source_registry()
-    return open_forcing_file(key, registry, url=url, size=size)
+    return open_forcing_file(key, _cached_registry(_is_local_url(url)), url=url, size=size)
+
+
+class PoolStartError(OSError):
+    """The worker processes could not be started (the caller falls back to threads)."""
+
+
+def _pool_worker(conn, items: list[tuple[str, int | None, str | None]]) -> None:
+    """Worker process: open each item, send one pickled ``(status, value)`` per file."""
+    try:
+        for item in items:
+            try:
+                msg = ("ok", _open_in_process(item))
+            except Exception as e:
+                msg = ("err", e)
+            try:
+                data = pickle.dumps(msg)
+            except Exception as e:  # an exception that does not pickle
+                err = msg[1] if msg[0] == "err" else e
+                data = pickle.dumps(
+                    ("err", VirtualizeError(f"{item[0]}: {type(err).__name__}: {err}"))
+                )
+            conn.send_bytes(data)
+    finally:
+        conn.close()
+
+
+def _open_with_processes(
+    items: list[tuple[str, int | None, str | None]], n: int
+) -> list[OpenedFile]:
+    """Open ``(key, size, url)`` items in ``n`` worker processes without semaphores.
+
+    ``ProcessPoolExecutor`` builds its queues on POSIX semaphores, which need
+    a writable ``/dev/shm``; Lambda has none. Here each of ``n`` forkserver
+    processes gets a slice of the items and the write end of its own
+    one-way ``Pipe``, and sends one pickled ``("ok", OpenedFile)`` or
+    ``("err", exception)`` message per file; the parent waits on the read
+    ends with ``multiprocessing.connection.wait``. The first error stops the
+    other workers and is raised as :class:`VirtualizeError`; a worker that
+    dies (killed, out of memory) without sending all its results is an error
+    too. Results come back in the order of ``items``.
+
+    forkserver, not fork: the caller may already run icechunk/obstore
+    runtime threads (a warm Lambda, an opened repository), and a forked
+    child of a threaded process can deadlock. The server preloads this
+    module, so each worker starts without re-importing xarray and friends.
+    Raises :class:`PoolStartError` when the processes cannot be started.
+    """
+    import multiprocessing
+    from multiprocessing.connection import wait
+
+    n = max(1, min(n, len(items)))
+    ctx = multiprocessing.get_context("forkserver")
+    ctx.set_forkserver_preload(["ismip7_helper.virtualize"])
+    procs: list = []
+    readers: dict = {}  # read end -> its worker process
+    try:
+        try:
+            for i in range(n):
+                r, w = ctx.Pipe(duplex=False)
+                p = ctx.Process(
+                    target=_pool_worker,
+                    args=(w, items[i::n]),
+                    name=f"ismip7-open-{i}",
+                    daemon=True,
+                )
+                readers[r] = p
+                try:
+                    p.start()
+                finally:
+                    w.close()
+                procs.append(p)
+        except OSError as e:
+            raise PoolStartError(f"{type(e).__name__}: {e}") from e
+
+        by_key: dict[str, OpenedFile] = {}
+        first_error: BaseException | None = None
+        pending = dict(readers)
+        while pending and first_error is None:
+            for r in wait(list(pending)):
+                try:
+                    status, value = pickle.loads(r.recv_bytes())
+                except EOFError:  # the worker closed its end: done (or dead)
+                    del pending[r]
+                    r.close()
+                    continue
+                if status == "ok":
+                    by_key[value.forcing.key] = value
+                else:
+                    first_error = value
+                    break
+        if first_error is not None:
+            if isinstance(first_error, VirtualizeError):
+                raise first_error
+            raise VirtualizeError(f"{type(first_error).__name__}: {first_error}") from first_error
+        for p in procs:
+            p.join()
+        missing = [key for key, _, _ in items if key not in by_key]
+        if missing:
+            codes = sorted({p.exitcode for p in procs if p.exitcode})
+            raise VirtualizeError(
+                f"{len(missing)} files not opened (worker exit codes {codes}), e.g. {missing[0]}"
+            )
+        return [by_key[key] for key, _, _ in items]
+    finally:
+        for p in procs:
+            if p.is_alive():
+                p.terminate()
+        for p in procs:
+            p.join(timeout=5)
+        for r in readers:
+            r.close()
 
 
 def _common_prefix(keys: list[str]) -> str:
@@ -707,6 +845,7 @@ __all__ = [
     "NOISY_ATTRS",
     "GroupResult",
     "OpenedFile",
+    "PoolStartError",
     "VirtualizeError",
     "concat_group",
     "identify_grid",

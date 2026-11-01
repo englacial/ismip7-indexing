@@ -27,10 +27,12 @@ import argparse
 import fnmatch
 import json
 import logging
+import os
 import sys
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +40,9 @@ from .conventions import ForcingFile, ForcingKind, parse_key
 from .store import (
     SOURCES_ATTR,
     VERIFIED_ATTR,
+    CredentialsExpiringError,
     StoreTarget,
+    check_credentials_lifetime,
     check_target_region,
     delete_group,
     ensure_hierarchy,
@@ -90,7 +94,10 @@ def group_digest(files: list[ForcingFile]) -> str:
 @dataclass
 class GroupRun:
     group_path: str
-    status: str  # written | verified | skipped | failed | dry-run
+    #: written | verified | skipped | failed | dry-run, and in fan-out reports also
+    #: deferred (too big for Lambda), in-flight (still running when the fan-out
+    #: was interrupted) and interrupted (a local run stopped by Ctrl-C)
+    status: str
     n_files: int
     seconds: float
     snapshot_id: str | None = None
@@ -102,8 +109,27 @@ class GroupRun:
     #: the group was deleted again after failing verification
     deleted: bool = False
     sources_sha256: str | None = None
-    #: why an existing group was rewritten, or why it was skipped
+    #: why an existing group was rewritten, or why it was skipped or deferred
     reason: str | None = None
+    #: normalisation notes: how many, and the first few (all are logged at INFO)
+    n_notes: int | None = None
+    notes_head: list[str] | None = None
+    #: the worker's ``os.cpu_count()`` and pool size (to calibrate group sizing)
+    cpu_count: int | None = None
+    n_workers: int | None = None
+    #: seconds per phase: ``open`` (read the headers and concatenate), ``commit``
+    #: (write, and verify when asked)
+    timings: dict[str, float] | None = None
+
+
+#: How many notes a ``GroupRun`` carries in ``notes_head``.
+NOTES_HEAD = 5
+
+
+def record_notes(run: GroupRun, notes: list[str]) -> None:
+    """Fill ``n_notes``/``notes_head`` from a group's notes."""
+    run.n_notes = len(notes)
+    run.notes_head = notes[:NOTES_HEAD] or None
 
 
 @dataclass
@@ -203,17 +229,34 @@ def run_group(
     registry: Any = None,
     overwrite: bool = False,
     verify_files: int = 0,
+    workers: int = 1,
 ) -> GroupRun:
-    """Concatenate, write and optionally verify one group; never raises."""
+    """Concatenate, write and optionally verify one group; never raises.
+
+    ``workers > 1`` opens the files in that many processes (each with its own
+    source registry, so ``registry`` is then not used).
+    """
     t0 = time.time()
+    notes: list[str] = []
+    timings: dict[str, float] = {}
     try:
-        result = concat_group(files, registry or source_registry())
-        for n in result.notes:
+        if workers > 1:
+            result = concat_group(files, max_workers=workers, use_processes=True)
+        else:
+            result = concat_group(files, registry or source_registry())
+        timings["open"] = round(time.time() - t0, 1)
+        notes = result.notes
+        for n in notes:
             logger.info("%s: %s", group_path, n)
         run = commit_group(repo, result, overwrite=overwrite, verify_files=verify_files)
+        timings["commit"] = round(time.time() - t0 - timings["open"], 1)
     except Exception as e:  # one bad group must not abort the run or lose the report
         logger.error("%s failed: %s: %s", group_path, type(e).__name__, e)
         run = GroupRun(group_path, "failed", len(files), 0.0, error=f"{type(e).__name__}: {e}")
+    record_notes(run, notes)
+    run.cpu_count = os.cpu_count()
+    run.n_workers = workers
+    run.timings = timings or None
     run.seconds = round(time.time() - t0, 1)
     return run
 
@@ -259,6 +302,14 @@ def main(argv: list[str] | None = None) -> int:
         help="after writing, compare sampled steps of N source files per variable; "
         "existing groups not yet verified are then rewritten",
     )
+    ap.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        metavar="N",
+        help="open each group's files in N processes (e.g. $(nproc) on a big machine, for "
+        "the groups the fan-out defers as too big for Lambda)",
+    )
     ap.add_argument("--max-groups", type=int, default=None, help="write at most N groups")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--report", help="JSON run report, rewritten as each group finishes")
@@ -286,9 +337,14 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as e:
         ap.error(str(e))
     if args.write_creds and not target.is_local:
-        target = StoreTarget(
-            url=target.url, region=target.region, credentials=load_sc_creds(args.write_creds)
-        )
+        creds = load_sc_creds(args.write_creds)
+        try:  # fail now, not at the first commit
+            check_credentials_lifetime(
+                creds, datetime.now(UTC) + timedelta(minutes=20), source=args.write_creds
+            )
+        except CredentialsExpiringError as e:
+            ap.error(str(e))
+        target = StoreTarget(url=target.url, region=target.region, credentials=creds)
     repo = open_repository(target, create=True)
     plan = plan_groups(
         groups,
@@ -306,7 +362,9 @@ def main(argv: list[str] | None = None) -> int:
         report(asdict(run))
         print(f"skip {gp} ({reason})", file=sys.stderr)
     for gp, (files, overwrite, reason) in plan.write.items():
-        run = run_group(gp, files, repo, overwrite=overwrite, verify_files=args.verify)
+        run = run_group(
+            gp, files, repo, overwrite=overwrite, verify_files=args.verify, workers=args.workers
+        )
         if reason != "new":
             run.reason = reason
         runs.append(run)

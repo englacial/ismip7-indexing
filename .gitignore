@@ -10,3 +10,6 @@ build/
 .ipynb_checkpoints/
 sc_creds.json
 .env
+run-*.json
+run-*.json.tmp
+big-groups-*.txt

@@ -41,6 +41,11 @@ index = [
     "pyarrow>=15",
     "boto3>=1.34",
 ]
+# what the Lambda image installs (no pyarrow: the handler reads no Parquet)
+lambda = [
+    "pandas>=2.2",
+    "boto3>=1.34",
+]
 dev = [
     "pytest>=8",
     "ruff>=0.6",

@@ -172,6 +172,35 @@ def static_credentials(creds: dict[str, Any]) -> Any:
     )
 
 
+class CredentialsExpiringError(RuntimeError):
+    """Write credentials expire before the work that needs them can finish."""
+
+
+def check_credentials_lifetime(
+    creds: dict[str, Any], needed_until: datetime, *, source: str = "write credentials"
+) -> None:
+    """Refuse credentials whose ``expires_after`` is not later than ``needed_until``.
+
+    Used by the Lambda handler (needed until the invocation's deadline) and
+    the fan-out (needed for its own writes, before it invokes anything), so
+    expiring credentials fail before the work rather than at the commit.
+    Credentials without an expiry pass (they cannot be checked).
+    """
+    exp = creds.get("expires_after")
+    if exp is None:
+        return
+    if exp.tzinfo is None:
+        exp = exp.astimezone()
+    if exp <= needed_until:
+        now = datetime.now(needed_until.tzinfo)
+        state = "expired" if exp <= now else "expire"
+        raise CredentialsExpiringError(
+            f"{source}: credentials {state} at {exp.isoformat(timespec='seconds')}, before "
+            f"{needed_until.isoformat(timespec='seconds')} when they are still needed; "
+            "fetch fresh source.coop credentials (and update the secret) and re-run"
+        )
+
+
 # --------------------------------------------------------------------------- repo
 
 
@@ -829,11 +858,13 @@ __all__ = [
     "SOURCES_ATTR",
     "SOURCE_CONTAINER_PREFIX",
     "VERIFIED_ATTR",
+    "CredentialsExpiringError",
     "RepositoryNotFoundError",
     "StoreTarget",
     "VerifyResult",
     "WriteResult",
     "ancestors",
+    "check_credentials_lifetime",
     "check_target_region",
     "container_credentials",
     "delete_group",

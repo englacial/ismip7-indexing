@@ -75,7 +75,9 @@ def local_run(synthetic_root, tmp_path, monkeypatch):
     monkeypatch.setattr(
         pipeline,
         "concat_group",
-        lambda files, registry: concat_group(files, local_registry(), urls=urls),
+        lambda files, registry=None, **kw: concat_group(
+            files, None if kw.get("use_processes") else local_registry(), urls=urls, **kw
+        ),
     )
     target = f"local:{tmp_path / 'repo'}"
     report = tmp_path / "run.json"
@@ -171,3 +173,11 @@ def test_pipeline_refuses_the_other_regions_repo(tmp_path):
                 f"local:{tmp_path}/icechunk-ais",
             ]
         )
+
+
+def test_pipeline_workers_open_files_in_processes(local_run):
+    run, _, _ = local_run
+    rc, runs = run("--workers", "2")
+    assert rc == 0 and {r["status"] for r in runs.values()} == {"written"}
+    assert {r["n_workers"] for r in runs.values()} == {2}
+    assert all(r["cpu_count"] and set(r["timings"]) == {"open", "commit"} for r in runs.values())

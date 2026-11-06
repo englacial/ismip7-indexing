@@ -203,6 +203,19 @@ def target_from_event(
     return target
 
 
+def _record_open(timings: dict[str, float], t0: float, cpu0: float, n: int) -> None:
+    """Wall and CPU seconds of the open phase, and the worker utilization.
+
+    CPU seconds are those of the (joined) worker processes plus this one;
+    utilization = CPU seconds / (wall seconds x workers).
+    """
+    timings["open"] = round(time.time() - t0, 1)
+    cpu_open = _cpu_seconds() - cpu0
+    timings["open_cpu"] = round(cpu_open, 1)
+    if timings["open"] > 0 and n > 0:
+        timings["open_utilization"] = round(cpu_open / (timings["open"] * n), 2)
+
+
 def _cpu_seconds() -> float:
     """User plus system CPU seconds of this process and its finished children."""
     import resource
@@ -249,20 +262,17 @@ def run_event(
             repo = open_repository(target_from_event(event, needed_until=until))  # never creates
         urls = _urls(event)
         cpu0 = _cpu_seconds()
-        result = concat_group(
-            files,
-            registry,
-            urls=urls or None,
-            max_workers=n,
-            use_processes=n > 1 and registry is None,
-        )
-        timings["open"] = round(time.time() - t0, 1)
-        # CPU seconds of the (joined) worker processes plus this one over the
-        # open phase; utilization = CPU seconds / (wall seconds x workers).
-        cpu_open = _cpu_seconds() - cpu0
-        timings["open_cpu"] = round(cpu_open, 1)
-        if timings["open"] > 0 and n > 0:
-            timings["open_utilization"] = round(cpu_open / (timings["open"] * n), 2)
+        try:
+            result = concat_group(
+                files,
+                registry,
+                urls=urls or None,
+                max_workers=n,
+                use_processes=n > 1 and registry is None,
+            )
+        finally:
+            # recorded even when the open fails, so a failed run still profiles
+            _record_open(timings, t0, cpu0, n)
         notes = result.notes
         for note in notes:
             logger.info("%s: %s", group_path, note)

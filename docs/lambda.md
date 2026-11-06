@@ -63,6 +63,20 @@ the function, its log group) and created or updated by `infra/deploy.sh`,
 which also builds and pushes the image. The manual steps that follow are
 what the stack does, for reference.
 
+Whoever deploys needs the permissions in `infra/deployer-policy.json`
+(scoped to the stack's own resources). The one statement likely to meet
+resistance is `iam:CreateRole` and friends on the execution role. If an
+administrator creates that role instead, from `infra/execution-role.json`
+(trust for Lambda, `AWSLambdaBasicExecutionRole`, and `GetSecretValue` on
+the credentials secret: it reads nothing else), deploy with
+`ExecutionRoleArn=<its ARN>` and the policy shrinks to
+`infra/deployer-policy-prepared-role.json`, which keeps only
+`iam:PassRole` on that role. Everything else is the same:
+
+```bash
+aws cloudformation deploy ... --parameter-overrides ... ExecutionRoleArn=arn:aws:iam::429435741471:role/ismip7-virtualize-execution
+```
+
 1. ECR repository: `aws ecr create-repository --repository-name ismip7-virtualize`.
 2. Build and push the image. Use `buildx` with `--platform linux/amd64` (Docker on
    Apple silicon otherwise builds arm64, and `create-function` defaults to

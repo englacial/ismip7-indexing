@@ -42,8 +42,16 @@ Parameters:
   ReservedConcurrency:
     Type: Number
     Default: 250  # one slot per group (218), so a region runs in one wave
+  ExecutionRoleArn:
+    Type: String
+    Default: ""
+    Description: >-
+      ARN of a pre-created execution role (see infra/execution-role.json). When set, the
+      stack creates no IAM role and the deployer needs only iam:PassRole on it; when
+      empty, the stack creates ${FunctionName}-execution itself.
 
 Conditions:
+  CreateRole: !Equals [!Ref ExecutionRoleArn, ""]
   HasImage: !Not [!Equals [!Ref ImageUri, ""]]
 
 Resources:
@@ -68,6 +76,7 @@ Resources:
 
   ExecutionRole:
     Type: AWS::IAM::Role
+    Condition: CreateRole
     Properties:
       RoleName: !Sub "${FunctionName}-execution"
       AssumeRolePolicyDocument:
@@ -97,7 +106,7 @@ Resources:
       PackageType: Image
       Code:
         ImageUri: !Ref ImageUri
-      Role: !GetAtt ExecutionRole.Arn
+      Role: !If [CreateRole, !GetAtt ExecutionRole.Arn, !Ref ExecutionRoleArn]
       Architectures: [x86_64]
       MemorySize: !Ref MemorySize
       Timeout: !Ref Timeout

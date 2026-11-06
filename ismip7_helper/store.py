@@ -764,10 +764,10 @@ def open_group(
 
 
 class _RangedFile(io.RawIOBase):
-    """Read-only, seekable file over an ``obstore.open_reader`` handle (ranged GETs).
+    """Read-only, seekable file over a block-cached ranged reader.
 
-    obstore returns its own ``Bytes`` type, which h5py does not accept; this
-    adapts it through ``readinto``. Only the byte ranges h5py asks for are fetched.
+    The reader returns bytes-like objects h5py does not accept directly; this
+    adapts it through ``readinto``.
     """
 
     def __init__(self, reader: Any) -> None:
@@ -805,9 +805,18 @@ def _source_store() -> Any:
     return S3Store(SOURCE_BUCKET, region=SOURCE_REGION, skip_signature=True)
 
 
+# How verification and native-chunk writes read a source file: in blocks of
+# SOURCE_READ_BLOCK_BYTES cached up to SOURCE_READ_CACHE_BYTES. h5py walks the
+# chunk index with many small, scattered reads and then reads whole chunks;
+# a read-ahead buffer (``obstore.open_reader``) refetched its 1 MiB on every
+# backward seek, which made one climatology step take about 250 s in Lambda.
+SOURCE_READ_BLOCK_BYTES = 1 << 20
+SOURCE_READ_CACHE_BYTES = 256 << 20
+
+
 def open_source(url: str) -> BinaryIO:
     """Open a source file (``s3://`` on the public bucket, or ``file://``) for ranged reads."""
-    import obstore
+    from obspec_utils.readers import BlockStoreReader
     from obstore.store import LocalStore
 
     if url.startswith("file://"):
@@ -817,7 +826,13 @@ def open_source(url: str) -> BinaryIO:
         store, key = _source_store(), url[len(SOURCE_URL) + 1 :]
     else:
         raise ValueError(f"not a source URL: {url}")
-    return _RangedFile(obstore.open_reader(store, key, buffer_size=1 << 20))  # type: ignore[return-value]
+    reader = BlockStoreReader(
+        store,
+        key,
+        block_size=SOURCE_READ_BLOCK_BYTES,
+        max_cached_blocks=SOURCE_READ_CACHE_BYTES // SOURCE_READ_BLOCK_BYTES,
+    )
+    return _RangedFile(reader)  # type: ignore[return-value]
 
 
 def _scalar(v: Any) -> Any:

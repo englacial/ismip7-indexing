@@ -654,19 +654,53 @@ def concat_group(
             f"{group_path}: only some variables have a time axis: {sorted(with_time)} "
             f"of {sorted(per_var)}"
         )
+    axes: dict[str, list[str]] = {}
     if with_time:
-        ref_var = with_time[0]
-        ref_time = per_var[ref_var]["time"].values
-        for var, ds in per_var.items():
-            t = ds["time"].values
-            if not np.array_equal(t, ref_time):
+        # Variables of one product can sit on different time axes: the monthly
+        # SMB fields and the *annual* gradient fields (dacabfdz, dtsdz, dmrrodz)
+        # share a group. Each distinct axis becomes its own dimension: the
+        # monthly one keeps ``time``, an annual one is ``time_annual``, anything
+        # else ``time_<steps per year>``. Variables on the same axis must match
+        # exactly (a 12-hour offset is a defect, not a second axis).
+        groups_by_axis: dict[tuple, list[str]] = {}
+        for var in with_time:
+            groups_by_axis.setdefault(tuple(per_var[var]["time"].values.tolist()), []).append(var)
+        names: dict[tuple, str] = {}
+        for key in sorted(groups_by_axis, key=len, reverse=True):
+            n_years = len(set(time_years(np.asarray(key))))
+            steps_per_year = round(len(key) / max(n_years, 1))
+            name = (
+                "time"
+                if steps_per_year == 12
+                else "time_annual"
+                if steps_per_year == 1
+                else f"time_{steps_per_year}"
+            )
+            clash = next((k for k, v in names.items() if v == name), None)
+            if clash is not None:
+                a, b = groups_by_axis[key][0], groups_by_axis[clash][0]
+                t, ref = np.asarray(key), np.asarray(clash)
                 detail = (
-                    f"{len(t)} vs {len(ref_time)} steps"
-                    if len(t) != len(ref_time)
-                    else f"up to {np.max(np.abs(t - ref_time)):g} days apart"
+                    f"{len(t)} vs {len(ref)} steps"
+                    if len(t) != len(ref)
+                    else f"up to {np.max(np.abs(t - ref)):g} days apart"
                 )
-                raise VirtualizeError(
-                    f"{group_path}: time axis of {var} differs from {ref_var} ({detail})"
+                raise VirtualizeError(f"{group_path}: time axis of {a} differs from {b} ({detail})")
+            names[key] = name
+        if "time" not in names.values():
+            # no monthly axis: the most populous one is plain ``time``
+            first = max(names, key=len)
+            names[first] = "time"
+        for key, name in names.items():
+            axes[name] = groups_by_axis[key]
+            if name == "time":
+                continue
+            for var in groups_by_axis[key]:
+                ds = per_var[var]
+                attrs = dict(ds["time"].attrs)
+                attrs["long_name"] = f"{name.replace('_', ' ')} axis"
+                per_var[var] = ds.rename({"time": name}).assign_coords(
+                    {name: (name, ds["time"].values, attrs)}
                 )
 
     try:
@@ -692,8 +726,11 @@ def concat_group(
             merged.attrs[name] = _uniform_or_list(
                 [(os.path.basename(o.forcing.key), o.ds["time"].attrs[name]) for o in ordered]
             )
-            # per-file values live in the group attrs; the merged axis has no one source
-            merged["time"].attrs.pop(name, None)
+            # per-file values live in the group attrs; the merged axes have no one source
+            for axis in axes:
+                merged[axis].attrs.pop(name, None)
+        if len(axes) > 1:
+            merged.attrs["ismip7_time_axes"] = [f"{a}: {', '.join(v)}" for a, v in axes.items()]
     return GroupResult(
         group_path=group_path,
         ds=merged,

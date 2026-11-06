@@ -556,3 +556,33 @@ def test_real_files_open_and_concat():
     o = open_forcing_file(k, reg)
     assert o.grid.resolution_m == 1000 and o.ds["time"].values[0] == 15.0
     assert o.ds["tf"].data.manifest.shape_chunk_grid == (3, 3, 3)
+
+
+def test_concat_group_keeps_monthly_and_annual_variables_on_separate_axes(
+    synthetic_root, local_registry
+):
+    """The gradient fields (dacabfdz, ...) are annual in files whose siblings are monthly."""
+    import cftime
+
+    keys, urls = [], {}
+    for var, n_time in (("acabf", 12), ("dacabfdz", 1)):
+        for year in (1850, 1851):
+            k = _key(var=var, year=year)
+            tv = None
+            if n_time == 1:
+                tv = np.asarray(
+                    cftime.date2num(
+                        [cftime.datetime(year, 7, 1, calendar="standard")],
+                        "days since 1850-01-01 00:00:00",
+                        "standard",
+                    ),
+                    dtype="f8",
+                )
+            urls[k] = _write(synthetic_root, k, n_time=n_time, time_values=tv)
+            keys.append(k)
+    g = concat_group([parse_key(k).forcing for k in keys], local_registry, urls=urls)
+    ds = g.ds
+    assert ds["acabf"].dims == ("time", "y", "x") and ds.sizes["time"] == 24
+    assert ds["dacabfdz"].dims == ("time_annual", "y", "x") and ds.sizes["time_annual"] == 2
+    assert ds["time_annual"].attrs["units"] == "days since 1850-01-01"
+    assert ds.attrs["ismip7_time_axes"] == ["time: acabf", "time_annual: dacabfdz"]

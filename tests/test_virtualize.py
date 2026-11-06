@@ -518,6 +518,9 @@ def test_process_pool_needs_no_semaphores(synthetic_root, no_semaphores, caplog)
     g = concat_group(files, urls=urls, max_workers=3, use_processes=True)
     assert g.n_files == 6 and g.ds.sizes["time"] == 72
     assert not [r for r in caplog.records if r.levelname == "WARNING"]  # no thread fallback
+    assert g.worker_cpu_seconds is not None and g.worker_cpu_seconds > 0  # the workers report it
+    threads = concat_group(files, urls=urls, max_workers=3, use_processes=False)
+    assert threads.worker_cpu_seconds is None  # in-process: getrusage(RUSAGE_SELF) covers it
 
 
 def test_process_pool_matches_threads_and_reports_errors(synthetic_root):

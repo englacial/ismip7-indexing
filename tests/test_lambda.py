@@ -699,6 +699,7 @@ def test_run_event_reports_cpu_utilization(synthetic_root, tmp_path, monkeypatch
     assert out["status"] == "written", out["error"]
     t = out["timings"]
     assert t["open_cpu"] >= 0 and 0 <= t["open_utilization"] <= 1.5  # >1 only if children exceed n
+    assert t["open_cpu"] >= t.get("open_worker_cpu", 0)  # the workers' share is included
     assert "commit_cpu" in t and t["commit_cpu"] >= 0
 
 

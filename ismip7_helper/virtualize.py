@@ -482,6 +482,10 @@ class GroupResult:
     #: When the headers were read (UTC, taken before opening the files); the
     #: store stamps the virtual references with it.
     opened_at: datetime | None = None
+    #: CPU seconds (user + system) spent by the worker *processes* opening the
+    #: files, summed over the workers; None when the files were opened in
+    #: this process (threads), whose CPU time ``getrusage(RUSAGE_SELF)`` sees.
+    worker_cpu_seconds: float | None = None
 
 
 def _uniform_or_list(pairs: list[tuple[str, str]]) -> str | list[str]:
@@ -605,6 +609,7 @@ def concat_group(
             "concat_group: a registry cannot be passed to worker processes; "
             "use registry=None with use_processes=True (each process builds its own)"
         )
+    worker_cpu: float | None = None
     if opened is None:
         url_of = urls or {}
 
@@ -615,7 +620,7 @@ def concat_group(
 
         if max_workers > 1 and use_processes:
             try:
-                opened = _open_with_processes(
+                opened, worker_cpu = _open_with_processes(
                     [(f.key, f.size, url_of.get(f.key)) for f in files], max_workers
                 )
             except PoolStartError as e:
@@ -746,6 +751,7 @@ def concat_group(
         notes=notes,
         sources=sorted(((f.key, f.size) for f in files), key=lambda p: p[0]),
         opened_at=opened_at,
+        worker_cpu_seconds=worker_cpu,
     )
 
 
@@ -812,8 +818,17 @@ class PoolStartError(OSError):
     """The worker processes could not be started (the caller falls back to threads)."""
 
 
+def _process_cpu_seconds() -> float:
+    """User plus system CPU seconds of this process (all its threads)."""
+    import resource
+
+    me = resource.getrusage(resource.RUSAGE_SELF)
+    return me.ru_utime + me.ru_stime
+
+
 def _pool_worker(conn, items: list[tuple[str, int | None, str | None]]) -> None:
-    """Worker process: open each item, send one pickled ``(status, value)`` per file."""
+    """Worker process: open each item, send one pickled ``(status, value)`` per file,
+    then one ``("cpu", seconds)`` with its own CPU time."""
     try:
         for item in items:
             try:
@@ -828,21 +843,26 @@ def _pool_worker(conn, items: list[tuple[str, int | None, str | None]]) -> None:
                     ("err", VirtualizeError(f"{item[0]}: {type(err).__name__}: {err}"))
                 )
             conn.send_bytes(data)
+        conn.send_bytes(pickle.dumps(("cpu", _process_cpu_seconds())))
     finally:
         conn.close()
 
 
 def _open_with_processes(
     items: list[tuple[str, int | None, str | None]], n: int
-) -> list[OpenedFile]:
+) -> tuple[list[OpenedFile], float]:
     """Open ``(key, size, url)`` items in ``n`` worker processes without semaphores.
+
+    Returns the opened files in the order of ``items`` and the workers' summed
+    CPU seconds. (``getrusage(RUSAGE_CHILDREN)`` in the caller would miss
+    them: forkserver workers are children of the server, not of the caller.)
 
     ``ProcessPoolExecutor`` builds its queues on POSIX semaphores, which need
     a writable ``/dev/shm``; Lambda has none. Here each of ``n`` forkserver
     processes gets a slice of the items and the write end of its own
     one-way ``Pipe``, and sends one pickled ``("ok", OpenedFile)`` or
-    ``("err", exception)`` message per file; the parent waits on the read
-    ends with ``multiprocessing.connection.wait``. The first error stops the
+    ``("err", exception)`` message per file, then ``("cpu", seconds)``; the
+    parent waits on the read ends with ``multiprocessing.connection.wait``. The first error stops the
     other workers and is raised as :class:`VirtualizeError`; a worker that
     dies (killed, out of memory) without sending all its results is an error
     too. Results come back in the order of ``items``.
@@ -890,6 +910,7 @@ def _open_with_processes(
             raise PoolStartError(f"{type(e).__name__}: {e}") from e
 
         by_key: dict[str, OpenedFile] = {}
+        worker_cpu = 0.0
         first_error: BaseException | None = None
         pending = dict(readers)
         while pending and first_error is None:
@@ -902,6 +923,8 @@ def _open_with_processes(
                     continue
                 if status == "ok":
                     by_key[value.forcing.key] = value
+                elif status == "cpu":
+                    worker_cpu += float(value)
                 else:
                     first_error = value
                     break
@@ -917,7 +940,7 @@ def _open_with_processes(
             raise VirtualizeError(
                 f"{len(missing)} files not opened (worker exit codes {codes}), e.g. {missing[0]}"
             )
-        return [by_key[key] for key, _, _ in items]
+        return [by_key[key] for key, _, _ in items], worker_cpu
     finally:
         for p in procs:
             if p.is_alive():

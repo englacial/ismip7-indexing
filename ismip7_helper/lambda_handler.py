@@ -203,21 +203,28 @@ def target_from_event(
     return target
 
 
-def _record_open(timings: dict[str, float], t0: float, cpu0: float, n: int) -> None:
+def _record_open(
+    timings: dict[str, float], t0: float, cpu0: float, n: int, worker_cpu: float | None
+) -> None:
     """Wall and CPU seconds of the open phase, and the worker utilization.
 
-    CPU seconds are those of the (joined) worker processes plus this one;
-    utilization = CPU seconds / (wall seconds x workers).
+    CPU seconds are this process's over the phase plus the worker processes'
+    own (``worker_cpu``, reported by each worker as it finishes; threads are
+    already in this process's count); utilization = CPU seconds / (wall
+    seconds x workers).
     """
     timings["open"] = round(time.time() - t0, 1)
-    cpu_open = _cpu_seconds() - cpu0
+    cpu_open = _cpu_seconds() - cpu0 + (worker_cpu or 0.0)
     timings["open_cpu"] = round(cpu_open, 1)
+    if worker_cpu is not None:
+        timings["open_worker_cpu"] = round(worker_cpu, 1)
     if timings["open"] > 0 and n > 0:
         timings["open_utilization"] = round(cpu_open / (timings["open"] * n), 2)
 
 
 def _cpu_seconds() -> float:
-    """User plus system CPU seconds of this process and its finished children."""
+    """User plus system CPU seconds of this process (all threads) and its
+    finished direct children (the forkserver's workers are *not* among those)."""
     import resource
 
     me = resource.getrusage(resource.RUSAGE_SELF)
@@ -262,6 +269,7 @@ def run_event(
             repo = open_repository(target_from_event(event, needed_until=until))  # never creates
         urls = _urls(event)
         cpu0 = _cpu_seconds()
+        result = None
         try:
             result = concat_group(
                 files,
@@ -272,7 +280,8 @@ def run_event(
             )
         finally:
             # recorded even when the open fails, so a failed run still profiles
-            _record_open(timings, t0, cpu0, n)
+            # (without the workers' share then: they report it at their end)
+            _record_open(timings, t0, cpu0, n, result.worker_cpu_seconds if result else None)
         notes = result.notes
         for note in notes:
             logger.info("%s: %s", group_path, note)

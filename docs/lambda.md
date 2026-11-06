@@ -6,13 +6,29 @@ or CloudShell (see Running) and collects the results. No Lithops: plain `boto3`.
 
 ## Sizing
 
-One invocation has at most 900 s. Opening the files (one ranged read of each
-HDF5 header, then parsing it) dominates, and **it is bound by S3 latency, not
-CPU**: measured on Lambda (2026-11-05, in us-west-2 next to the source
-bucket), six worker processes were busy 13% of the time, and 24 were busy 7%
-of the time for the same total CPU. The handler runs `ISMIP7_WORKERS`
-processes (template parameter `Workers`), independent of the vCPU count.
-Each worker holds about 75 MB.
+One invocation has at most 900 s. Opening the files (reading each file's
+HDF5 metadata and chunk index, then parsing it) dominates, and **it is bound
+by S3, not CPU**: measured on Lambda (2026-11-05, in us-west-2 next to the
+source bucket), six worker processes were busy 13% of the time, and 24 were
+busy 7% of the time for the same total CPU. The handler runs
+`ISMIP7_WORKERS` processes (template parameter `Workers`), independent of
+the vCPU count. Each worker holds about 75 MB.
+
+What the workers wait for depends on the read block size. A netCDF writer
+that appends chunks as it goes leaves the chunk index scattered through the
+file, and the parser fetches every block the index touches. With the
+library's default 1 MiB blocks a finely chunked AIS 2 km file
+(`CESM2-WACCM/ssp126/SDBN1-2000m`, chunked (1, 21, 3041), 1,740 chunks in
+71 MB) cost 32 requests and 32 MB, and an ocean decade file 93 requests and
+96 MB; a Lambda's network tops out near 110 MB/s, so the open phase of a
+1,815-file 2 km group took 534 s and the 3,146-file ones could not finish.
+Since 2026-11-06 the parser reads 32 KiB blocks (`HDF_READ_BLOCK_BYTES`):
+the same files cost 34 requests and 1.2 MB, and 120 requests and 4.4 MB,
+and the open phase is latency- and CPU-bound instead. Verification and
+native-chunk writes read source files through a 1 MiB block cache
+(`SOURCE_READ_BLOCK_BYTES`); the read-ahead reader they used before
+refetched its buffer on every backward seek, which made one climatology
+step take 250 s.
 
 Measured on a 1,980-file GrIS 1 km group (`CanESM5/historical/dEBM2-1000m`
 and siblings), `--verify 1` unless noted:
@@ -33,12 +49,15 @@ took 43 s to commit and verify, peaking at 1,060 MB.
 **Production setting: 10,240 MB and 24 workers** (the template defaults).
 The full-region run of 2026-11-06 at 2,048 MB and 8 workers verified 174
 of 218 groups, but the chunk-heaviest quarter of the archive did not fit:
-the AIS 2 km SDBN1 groups (up to 2.3 million references, 0.29 s/file even
-at 24 workers) and the GrIS 1 km and 4 km ssp runs ran out of memory at
-2,048 MB or of time; at 10 GB with 24 workers they peak at 3.3 GB and the
-3,718-file GrIS groups take under 10 minutes. The 3,146-file AIS 2 km
-SDBN1 ssp groups need 48 workers. The whole archive costs about four
-dollars per full run at 10 GB; the 2 GB setting saves about three.
+the AIS 2 km SDBN1 groups (up to 4 million references) and the GrIS 1 km
+and 4 km ssp runs ran out of memory at 2,048 MB or of time; at 10 GB with
+24 workers they peak at 3.3 GB and the 3,718-file GrIS groups take under
+10 minutes. With 32 KiB read blocks the largest groups of the archive, the
+three 3,146-file AIS 2 km SDBN1 ssp groups (3.98 million references each),
+open in 304-314 s and commit and verify in 250-429 s: 554 s, 604 s and
+740 s in all, so every group fits one invocation and the serial runner is
+not needed. The whole archive costs about four dollars per full run at
+10 GB; the 2 GB setting saves about three.
 
 The fan-out estimates each group as `n_files × --seconds-per-file /
 --speedup` and does **not** invoke groups estimated over

@@ -18,8 +18,6 @@ Parameters:
       only private-ECR images), deploy.sh pushes the image, and a second
       deploy with the URI creates the function.
 
-Conditions:
-  HasImage: !Not [!Equals [!Ref ImageUri, ""]]
   SecretName:
     Type: String
     Default: ismip7/sc_creds
@@ -34,6 +32,9 @@ Conditions:
   ReservedConcurrency:
     Type: Number
     Default: 50
+
+Conditions:
+  HasImage: !Not [!Equals [!Ref ImageUri, ""]]
 
 Resources:
   Repository:

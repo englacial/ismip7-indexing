@@ -126,7 +126,11 @@ def _write_credentials(needed_until: datetime | None = None) -> dict[str, Any]:
             logger.warning(
                 "secret %s has no Expiration: its credentials are never refreshed", secret
             )
-        return {"get_credentials": getter}
+        out: dict[str, Any] = {"get_credentials": getter}
+        if creds.get("endpoint_url"):  # the refresh callback returns keys only
+            out["endpoint_url"] = creds["endpoint_url"]
+            out["endpoint_region"] = creds.get("endpoint_region")
+        return out
     return {}
 
 

@@ -77,6 +77,10 @@ class StoreTarget:
     #: ``url_prefix`` -> local root, for virtual chunks that live on local disk
     #: (tests only). Production repos reference the public bucket.
     local_containers: dict[str, str] = field(default_factory=dict, hash=False)
+    #: S3-compatible endpoint to write through (e.g. ``https://data.source.coop``)
+    #: and the region to sign for; taken from the credentials when they carry one.
+    endpoint_url: str | None = None
+    endpoint_region: str | None = None
     get_credentials: Callable[[], Any] | None = field(
         default=None, hash=False, repr=False, compare=False
     )
@@ -144,6 +148,14 @@ def parse_sc_creds(raw: str | dict[str, Any], *, source: str = "credentials") ->
     }
     if not out["access_key_id"] or not out["secret_access_key"]:
         raise ValueError(f"{source}: no access key / secret found; keys present: {sorted(data)}")
+    # source.coop issues credentials for its own S3-compatible endpoint
+    # (https://data.source.coop); they are not valid against AWS S3 directly.
+    endpoint = pick("endpoint_url", "EndpointUrl", "endpoint")
+    if endpoint:
+        out["endpoint_url"] = str(endpoint).rstrip("/")
+        region = pick("region_name", "region", "Region")
+        if region:
+            out["endpoint_region"] = str(region)
     exp = pick("expires_after", "Expiration", "expiration")
     if exp:
         try:
@@ -257,14 +269,40 @@ def storage_for(target: StoreTarget) -> Any:
     if target.is_local:
         return icechunk.local_filesystem_storage(target.path)
     bucket, prefix = target.bucket_and_prefix
+    creds = dict(target.credentials or {})
+    endpoint = target.endpoint_url or creds.pop("endpoint_url", None)
+    endpoint_region = target.endpoint_region or creds.pop("endpoint_region", None)
     kw: dict[str, Any] = {"bucket": bucket, "prefix": prefix, "region": target.region}
+    if endpoint:
+        bucket, prefix = proxy_layout(bucket, prefix)
+        kw.update(
+            bucket=bucket,
+            prefix=prefix,
+            endpoint_url=endpoint,
+            force_path_style=True,
+            region=endpoint_region or target.region,
+        )
     if target.get_credentials is not None:
         kw["get_credentials"] = target.get_credentials
-    elif target.credentials:
-        kw.update(target.credentials)
+    elif creds:
+        kw.update(creds)
     else:
         kw["from_env"] = True
     return icechunk.s3_storage(**kw)
+
+
+def proxy_layout(bucket: str, prefix: str) -> tuple[str, str]:
+    """Map a public-bucket location to the source.coop proxy's layout.
+
+    On ``https://data.source.coop`` the S3 bucket is the account
+    (``englacial``) and the key is the rest (``ismip7/icechunk-ais/...``);
+    objects written there appear anonymously in the public bucket under
+    ``englacial/ismip7/...``, where readers expect them.
+    """
+    if bucket == SOURCE_BUCKET and "/" in prefix:
+        account, rest = prefix.split("/", 1)
+        return account, rest
+    return bucket, prefix
 
 
 def open_repository(target: StoreTarget, *, create: bool = False, readonly: bool = False) -> Any:

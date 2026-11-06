@@ -66,20 +66,44 @@ what the stack does, for reference.
 Whoever deploys needs the permissions in `infra/deployer-policy.json`
 (scoped to the stack's own resources). The one statement likely to meet
 resistance is `iam:CreateRole` and friends on the execution role. If an
-administrator creates that role instead, from `infra/execution-role.json`
-(trust for Lambda, `AWSLambdaBasicExecutionRole`, and `GetSecretValue` on
-the credentials secret: it reads nothing else), deploy with
-`ExecutionRoleArn=<its ARN>` and the policy shrinks to
-`infra/deployer-policy-prepared-role.json`, which keeps only
-`iam:PassRole` on that role. Everything else is the same:
+administrator creates that role instead, the deployer policy shrinks to
+`infra/deployer-policy-prepared-role.json`, which keeps only `iam:PassRole`
+on that role. Either way the deployer runs `infra/deploy.sh`.
+
+Path 1, the administrator attaches the all-in-one policy and the stack
+creates the role:
 
 ```bash
-EXECUTION_ROLE_ARN=arn:aws:iam::429435741471:role/ismip7-virtualize-execution infra/deploy.sh
+aws iam put-user-policy --user-name <deployer> --policy-name ismip7-deployer \
+    --policy-document file://infra/deployer-policy.json
+# then, as the deployer:
+AWS_PROFILE=<englacial> infra/deploy.sh
 ```
 
-Either way the person with the deployer policy runs `infra/deploy.sh`; the
-administrator's part is attaching that policy (path 1), or creating the
-role and attaching the smaller policy (path 2).
+Path 2, the administrator creates the role (trust for Lambda, the basic
+execution policy for its logs, and `GetSecretValue` on the credentials
+secret: it reads nothing else) and attaches the smaller policy:
+
+```bash
+aws iam create-role --role-name ismip7-virtualize-execution \
+    --assume-role-policy-document file://infra/execution-role-trust.json
+aws iam attach-role-policy --role-name ismip7-virtualize-execution \
+    --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+aws iam put-role-policy --role-name ismip7-virtualize-execution \
+    --policy-name read-credentials-secret --policy-document file://infra/execution-role-policy.json
+aws iam put-user-policy --user-name <deployer> --policy-name ismip7-deployer \
+    --policy-document file://infra/deployer-policy-prepared-role.json
+# then, as the deployer:
+EXECUTION_ROLE_ARN=arn:aws:iam::429435741471:role/ismip7-virtualize-execution AWS_PROFILE=<englacial> infra/deploy.sh
+```
+
+After either path, load the source.coop credentials into the secret and
+run the fan-out (see Running):
+
+```bash
+aws secretsmanager put-secret-value --region us-west-2 --secret-id ismip7/sc_creds \
+    --secret-string file://sc_creds.json
+```
 
 1. ECR repository: `aws ecr create-repository --repository-name ismip7-virtualize`.
 2. Build and push the image. Use `buildx` with `--platform linux/amd64` (Docker on

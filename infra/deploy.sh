@@ -43,20 +43,20 @@ if [[ "${1:-}" == "--image" ]]; then
   exit 0
 fi
 
-# 1. Stack with the ECR repository first (the function needs an image that exists,
-#    so bootstrap with the public Lambda base image, then replace it).
+# 1. Stack without the function first: Lambda accepts only images from a private
+#    ECR repository, and the repository is created by this stack.
 if ! aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" >/dev/null 2>&1; then
-  echo "creating stack $STACK with a bootstrap image"
+  echo "creating stack $STACK (repository, role, secret, log group; no function yet)"
   aws cloudformation deploy --region "$REGION" --stack-name "$STACK" \
       --template-file infra/lambda-stack.yaml --capabilities CAPABILITY_NAMED_IAM \
-      --parameter-overrides FunctionName="$FUNCTION" ImageUri="public.ecr.aws/lambda/python:3.12" \
+      --parameter-overrides FunctionName="$FUNCTION" ImageUri="" \
       --no-fail-on-empty-changeset
 fi
 
 # 2. Real image.
 build_and_push
 
-# 3. Point the function at it (stack update keeps everything else in sync).
+# 3. Create (or update) the function with the real image.
 aws cloudformation deploy --region "$REGION" --stack-name "$STACK" \
     --template-file infra/lambda-stack.yaml --capabilities CAPABILITY_NAMED_IAM \
     --parameter-overrides FunctionName="$FUNCTION" ImageUri="$IMAGE" \

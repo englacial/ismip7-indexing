@@ -10,11 +10,16 @@ Parameters:
     Default: ismip7-virtualize
   ImageUri:
     Type: String
+    Default: ""
     Description: >
       Full ECR image URI (with tag or digest) of the image built from
       Dockerfile.lambda. The ECR repository is created by this stack, so the
-      first deploy uses the bootstrap image (see deploy.sh) and a second
-      update sets the real one.
+      first deploy leaves this empty (no function is created, Lambda accepts
+      only private-ECR images), deploy.sh pushes the image, and a second
+      deploy with the URI creates the function.
+
+Conditions:
+  HasImage: !Not [!Equals [!Ref ImageUri, ""]]
   SecretName:
     Type: String
     Default: ismip7/sc_creds
@@ -75,6 +80,7 @@ Resources:
 
   Function:
     Type: AWS::Lambda::Function
+    Condition: HasImage
     Properties:
       FunctionName: !Ref FunctionName
       PackageType: Image
@@ -101,6 +107,7 @@ Outputs:
   RepositoryUri:
     Value: !GetAtt Repository.RepositoryUri
   FunctionArn:
+    Condition: HasImage
     Value: !GetAtt Function.Arn
   RoleArn:
     Value: !GetAtt ExecutionRole.Arn

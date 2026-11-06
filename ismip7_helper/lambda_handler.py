@@ -203,6 +203,15 @@ def target_from_event(
     return target
 
 
+def _cpu_seconds() -> float:
+    """User plus system CPU seconds of this process and its finished children."""
+    import resource
+
+    me = resource.getrusage(resource.RUSAGE_SELF)
+    kids = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return me.ru_utime + me.ru_stime + kids.ru_utime + kids.ru_stime
+
+
 def _remaining_s(context: Any) -> float | None:
     if context is None:
         return None
@@ -239,6 +248,7 @@ def run_event(
             until = datetime.now(UTC) + timedelta(seconds=left or 0)
             repo = open_repository(target_from_event(event, needed_until=until))  # never creates
         urls = _urls(event)
+        cpu0 = _cpu_seconds()
         result = concat_group(
             files,
             registry,
@@ -247,6 +257,12 @@ def run_event(
             use_processes=n > 1 and registry is None,
         )
         timings["open"] = round(time.time() - t0, 1)
+        # CPU seconds of the (joined) worker processes plus this one over the
+        # open phase; utilization = CPU seconds / (wall seconds x workers).
+        cpu_open = _cpu_seconds() - cpu0
+        timings["open_cpu"] = round(cpu_open, 1)
+        if timings["open"] > 0 and n > 0:
+            timings["open_utilization"] = round(cpu_open / (timings["open"] * n), 2)
         notes = result.notes
         for note in notes:
             logger.info("%s: %s", group_path, note)
@@ -263,6 +279,7 @@ def run_event(
             )
             run = GroupRun(group_path, "failed", len(files), 0.0, error="deadline")
         else:
+            cpu1 = _cpu_seconds()
             run = commit_group(
                 repo,
                 result,
@@ -270,6 +287,7 @@ def run_event(
                 verify_files=int(event.get("verify", 0)),
             )
             timings["commit"] = round(time.time() - t0 - timings["open"], 1)
+            timings["commit_cpu"] = round(_cpu_seconds() - cpu1, 1)  # single-threaded tail
     except Exception as e:  # the fan-out must get a record back, not a stack trace
         logger.exception("%s failed", group_path)
         run = GroupRun(group_path, "failed", n_keys, 0.0, error=f"{type(e).__name__}: {e}")

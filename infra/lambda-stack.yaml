@@ -31,7 +31,7 @@ Parameters:
     Default: 900
   ReservedConcurrency:
     Type: Number
-    Default: 50
+    Default: 250  # one slot per group (218), so a region runs in one wave
 
 Conditions:
   HasImage: !Not [!Equals [!Ref ImageUri, ""]]

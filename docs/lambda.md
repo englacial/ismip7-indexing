@@ -127,7 +127,7 @@ what the stack does, for reference.
      --role arn:aws:iam::<acct>:role/ismip7-virtualize \
      --memory-size 10240 --timeout 900 --ephemeral-storage Size=2048 \
      --environment Variables={ISMIP7_WRITE_CREDS_SECRET=ismip7/sc_creds}
-   aws lambda put-function-concurrency --function-name ismip7-virtualize --reserved-concurrent-executions 50
+   aws lambda put-function-concurrency --function-name ismip7-virtualize --reserved-concurrent-executions 250
    ```
 
 ## Verified under the Runtime Interface Emulator (2026-11-01)
@@ -161,10 +161,12 @@ ismip7-fanout --index index.parquet --region AIS --groups 'CESM2-WACCM/historica
     --function ismip7-virtualize --write-creds sc_creds.json --verify 1 --report run-ais-1.json  # one group first
 # measure seconds per file from that report (see Sizing), then plan and run the rest:
 ismip7-fanout --index index.parquet --region AIS --function ismip7-virtualize --write-creds sc_creds.json \
-    --concurrency 40 --verify 1 --seconds-per-file <measured> --dry-run
+    --concurrency 100 --verify 1 --seconds-per-file <measured> --dry-run
 ismip7-fanout --index index.parquet --region AIS --function ismip7-virtualize --write-creds sc_creds.json \
-    --concurrency 40 --verify 1 --seconds-per-file <measured>
-# then the deferred groups, on a big EC2 instance, with the printed ismip7-virtualize command
+    --concurrency 100 --verify 1 --seconds-per-file <measured>
+# in-region every group fits one invocation (largest: 4,004 GrIS 1 km files, ~12 min), so nothing is
+# deferred; --concurrency 100 staggers the commits through the data.source.coop proxy while the
+# function's reserved concurrency (250) would allow a whole region at once
 ```
 
 The report defaults to `run-<region>-<UTC time>.json`, so a re-run does not

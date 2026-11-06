@@ -29,7 +29,7 @@ import xarray as xr
 
 from . import SOURCE_BUCKET, SOURCE_REGION, TARGET_PREFIX
 from .conventions.models import SUBMISSION_CALENDAR
-from .virtualize import COORD_VARS, SOURCE_URL, GroupResult
+from .virtualize import COORD_VARS, SOURCE_URL, GroupResult, VirtualizeError
 
 logger = logging.getLogger(__name__)
 
@@ -571,6 +571,7 @@ def write_group(
     for attempt in range(restage_tries + 1):
         session = repo.writable_session(branch)
         ds.vz.to_icechunk(session.store, group=gp, mode=mode, last_updated_at=stamp)
+        _write_native_tails(session, gp, result)
         try:
             snap = session.commit(
                 msg,
@@ -592,6 +593,39 @@ def write_group(
     nbytes = int(result.ds.vz.nbytes)
     logger.info("committed %s as %s (%d refs)", gp, snap, nrefs)
     return WriteResult(gp, snap, result.n_files, nbytes, nrefs, digest)
+
+
+def _write_native_tails(session: Any, group_path: str, result: GroupResult) -> None:
+    """Copy each :class:`~.virtualize.NativeTail` into the staged group as native chunks.
+
+    The source steps are read whole (h5py over ranged reads) and written
+    through zarr, which re-chunks and encodes them with the array's own
+    chunk grid and codecs; the first step is read back and compared. Only
+    these steps are ever copied into the store.
+    """
+    import h5py
+    import zarr
+
+    for tail in result.native_tails:
+        with open_source(tail.url) as fh, h5py.File(fh, "r") as h:
+            data = h[tail.var][...]
+        if data.shape[0] != tail.n:
+            raise VirtualizeError(
+                f"{group_path}/{tail.var}: {tail.key} has {data.shape[0]} steps, expected {tail.n}"
+            )
+        arr = zarr.open_array(session.store, path=f"{group_path}/{tail.var}", mode="r+")
+        arr[tail.start : tail.start + tail.n] = data
+        back = arr[tail.start]
+        if not np.array_equal(back, data[0], equal_nan=True):
+            raise VirtualizeError(f"{group_path}/{tail.var}: native steps read back differently")
+        logger.info(
+            "%s: %s: %d step(s) from %s stored natively from index %d",
+            group_path,
+            tail.var,
+            tail.n,
+            os.path.basename(tail.key),
+            tail.start,
+        )
 
 
 def _conflict_pause(group_path: str, attempt: int) -> None:

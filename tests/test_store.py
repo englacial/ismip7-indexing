@@ -672,3 +672,41 @@ def test_write_group_restages_after_losing_its_rebase_races(local_group, local_t
     with pytest.raises(icechunk.ConflictError):
         write_group(repo, result, overwrite=True, restage_tries=1)
     assert pauses == [0, 0]
+
+
+def test_native_tail_round_trip(synthetic_root, local_target):
+    """A last file chunked unlike its series is stored natively and reads back exactly."""
+    import xarray as xr
+
+    from ismip7_helper.virtualize import NativeTail
+
+    keys = _keys(years=(1850, 1851, 1852), variables=("acabf",))
+    urls, paths = {}, {}
+    for i, k in enumerate(keys):
+        p = synthetic_root / k
+        write_forcing_file(
+            p,
+            year=int(k[-7:-3]),
+            variable="acabf",
+            seed=i,
+            chunks=(1, 96, 96) if k.endswith("1852.nc") else None,
+            fill_cell=k.endswith("1852.nc"),
+        )
+        urls[k], paths[k] = f"file://{p}", p
+    result = concat_group([parse_key(k).forcing for k in keys], local_registry(), urls=urls)
+    assert result.native_tails == [NativeTail("acabf", 24, 12, urls[keys[-1]], keys[-1])]
+    assert any("stored natively" in n for n in result.notes)
+    manifest = result.ds["acabf"].data.manifest
+    assert result.ds["acabf"].data.metadata.chunks == (1, 191, 191)
+    assert manifest.shape_chunk_grid[0] == 36 and "24.0.0" not in manifest.dict()
+
+    repo = open_repository(local_target, create=True)
+    wr = write_group(repo, result)
+    assert wr.nrefs == 36  # the chunk grid, placeholders included
+    stored = open_group(repo, wr.group_path)["acabf"]
+    with xr.open_dataset(paths[keys[-1]]) as tail:
+        np.testing.assert_array_equal(stored.isel(time=slice(24, 36)).values, tail["acabf"].values)
+        assert np.isnan(stored.isel(time=24).values[0, 0])  # the fill cell decodes as NaN
+    with xr.open_dataset(paths[keys[0]]) as head:
+        np.testing.assert_array_equal(stored.isel(time=slice(0, 12)).values, head["acabf"].values)
+    assert verify_group(repo, result, n_files=3, seed=0).ok

@@ -471,6 +471,17 @@ def _normalize_file(key: str, f: ForcingFile, vds: xr.Dataset) -> OpenedFile:
 # --------------------------------------------------------------------------- per group
 
 
+@dataclass(frozen=True)
+class NativeTail:
+    """Steps of a virtual array that must be stored natively (see :func:`_placeholder_tails`)."""
+
+    var: str
+    start: int  # first index along axis 0
+    n: int  # steps
+    url: str  # the source file holding them
+    key: str
+
+
 @dataclass
 class GroupResult:
     group_path: str
@@ -482,6 +493,10 @@ class GroupResult:
     #: When the headers were read (UTC, taken before opening the files); the
     #: store stamps the virtual references with it.
     opened_at: datetime | None = None
+    #: Trailing steps whose source file is chunked differently from the series:
+    #: the writer copies them into the store as native chunks (the only data
+    #: copied; under 1% of those series).
+    native_tails: list[NativeTail] = field(default_factory=list)
     #: CPU seconds (user + system) spent by the worker *processes* opening the
     #: files, summed over the workers; None when the files were opened in
     #: this process (threads), whose CPU time ``getrusage(RUSAGE_SELF)`` sees.
@@ -576,9 +591,74 @@ def _normalize_codecs(label: str, items: list[OpenedFile], var: str) -> list[str
     return notes
 
 
+def _placeholder_tails(
+    label: str, items: list[OpenedFile], var: str
+) -> tuple[list[NativeTail], list[str]]:
+    """Swap trailing files chunked unlike the series for placeholders to fill natively.
+
+    The last file of a series can be chunked differently from the rest (the
+    writer's auto-chunking follows the file's shape: the five-year 2010-2014
+    AIS ocean files, the two-month 2026 EN4 file). A Zarr array has one
+    chunk grid, and these files are gzip-chunked, so their chunks cannot be
+    re-cut by reference. Instead each such trailing file becomes a
+    placeholder with the series' chunk grid and no sources, and a
+    :class:`NativeTail` tells the writer to copy its steps into the store
+    as native chunks. Mismatches anywhere but at the end are left for the
+    concatenation to reject.
+    """
+    from dataclasses import replace
+
+    from virtualizarr.manifests import ChunkManifest, ManifestArray
+
+    ref = items[0].ds[var].data
+    if not isinstance(ref, ManifestArray):
+        return [], []
+    ref_chunks = tuple(ref.metadata.chunks)
+    odd = [
+        i
+        for i, o in enumerate(items)
+        if isinstance(o.ds[var].data, ManifestArray)
+        and tuple(o.ds[var].data.metadata.chunks) != ref_chunks
+    ]
+    if not odd or odd != list(range(odd[0], len(items))):
+        return [], []
+    start = sum(int(o.ds[var].shape[0]) for o in items[: odd[0]])
+    if start % ref_chunks[0]:
+        return [], []  # the tail would begin inside a chunk
+    tails, notes = [], []
+    for i in odd:
+        o = items[i]
+        marr = o.ds[var].data
+        grid = tuple(-(-n // c) for n, c in zip(marr.shape, ref_chunks, strict=True))
+        placeholder = ManifestArray(
+            metadata=replace(ref.metadata, shape=tuple(marr.shape)),
+            chunkmanifest=ChunkManifest.from_arrays(
+                paths=np.full(grid, "", dtype=np.dtypes.StringDType()),
+                offsets=np.zeros(grid, dtype=np.uint64),
+                lengths=np.zeros(grid, dtype=np.uint64),
+            ),
+        )
+        ds = o.ds.copy()
+        ds[var] = ds[var].copy(data=placeholder)
+        o.ds = ds
+        n = int(marr.shape[0])
+        # the URL the file was opened from (local in tests), as its chunks record it
+        url = next((e["path"] for e in marr.manifest.dict().values() if e["path"]), None)
+        if url is None:
+            raise VirtualizeError(f"{label}: {o.forcing.key} has no chunks to copy")
+        tails.append(NativeTail(var, start, n, url, o.forcing.key))
+        notes.append(
+            f"{var}: {os.path.basename(o.forcing.key)}: chunked {tuple(marr.metadata.chunks)} "
+            f"where the series is chunked {ref_chunks}; its {n} step(s) from index {start} "
+            f"are stored natively, re-chunked"
+        )
+        start += n
+    return tails, notes
+
+
 def _concat_variable(
     group_path: str, var: str, items: list[OpenedFile]
-) -> tuple[xr.Dataset, list[str]]:
+) -> tuple[xr.Dataset, list[str], list[NativeTail]]:
     label = f"{group_path}/{var}"
     items.sort(key=lambda o: (o.forcing.year_start or 0, o.forcing.year_end or 0))
     versions = sorted({o.forcing.version for o in items}, key=lambda v: (v is None, v))
@@ -593,9 +673,11 @@ def _concat_variable(
         if b0 != a1 + 1:
             raise VirtualizeError(f"{label}: gap between files {a0}-{a1} and {b0}-{b1}")
     if len(items) == 1:
-        return items[0].ds, []
+        return items[0].ds, [], []
     _check_fill_values(label, items, var)
     notes = _normalize_codecs(label, items, var)
+    tails, tail_notes = _placeholder_tails(label, items, var)
+    notes.extend(tail_notes)
     try:
         ds = xr.concat(
             [o.ds for o in items],
@@ -614,7 +696,7 @@ def _concat_variable(
     t = ds["time"].values
     if len(t) > 1 and not np.all(np.diff(t) > 0):
         raise VirtualizeError(f"{label}: time is not strictly increasing across files")
-    return ds, notes
+    return ds, notes, tails
 
 
 def concat_group(
@@ -711,9 +793,11 @@ def concat_group(
         by_var.setdefault(o.forcing.variable or "", []).append(o)
 
     per_var: dict[str, xr.Dataset] = {}
+    native_tails: list[NativeTail] = []
     for var, items in by_var.items():
-        per_var[var], var_notes = _concat_variable(group_path, var, items)
+        per_var[var], var_notes, var_tails = _concat_variable(group_path, var, items)
         notes.extend(var_notes)
+        native_tails.extend(var_tails)
     for var in per_var:
         # a shallow copy, so the attribute does not leak into the caller's OpenedFile
         per_var[var] = ds = per_var[var].copy()
@@ -829,6 +913,7 @@ def concat_group(
         notes=notes,
         sources=sorted(((f.key, f.size) for f in files), key=lambda p: p[0]),
         opened_at=opened_at,
+        native_tails=native_tails,
         worker_cpu_seconds=worker_cpu,
     )
 

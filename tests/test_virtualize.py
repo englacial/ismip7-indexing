@@ -669,3 +669,18 @@ def test_concat_group_pads_a_short_annual_series(synthetic_root, local_registry)
     note = "dmrrodz: 1 missing step(s) at the end of its time axis (1851); padded, read as the fill value"
     assert note in ds.attrs["ismip7_time_axis_notes"] and note in g.notes
     assert ds.attrs["ismip7_time_axes"] == ["time: acabf", "time_annual: dacabfdz, dmrrodz"]
+
+
+def test_block_reader_uses_small_blocks_within_the_cache_budget(tmp_path):
+    import obstore
+    from obspec_utils.readers import BlockStoreReader
+
+    from ismip7_helper.virtualize import HDF_READ_BLOCK_BYTES, HDF_READ_CACHE_BYTES, _block_reader
+
+    (tmp_path / "f.bin").write_bytes(b"x" * 100_000)
+    reader = _block_reader(obstore.store.LocalStore(tmp_path), "f.bin")
+    assert isinstance(reader, BlockStoreReader)
+    assert reader._block_size == HDF_READ_BLOCK_BYTES == 32 * 1024
+    assert reader._max_cached_blocks * HDF_READ_BLOCK_BYTES == HDF_READ_CACHE_BYTES
+    reader.seek(50_000)
+    assert reader.read(10) == b"x" * 10

@@ -53,6 +53,18 @@ SOURCE_URL = f"s3://{SOURCE_BUCKET}"
 #: scalars are loaded so their (sometimes wrong) attributes can be inspected
 #: before they are dropped and replaced.
 SOURCE_CRS_VARS = ("crs", "mapping", "polar_stereographic", "spatial_ref")
+
+# How the HDF5 parser reads a source file: in fixed blocks of this many bytes,
+# keeping at most HDF_READ_CACHE_BYTES of them. The parser only reads the file's
+# metadata and chunk index, but a netCDF writer that appended chunks as it went
+# leaves that index scattered through the file, so every block it lands in is
+# fetched whole. With the library default of 1 MiB blocks a finely chunked
+# 2 km AIS file (1,740 chunks, 71 MB) costs 32 requests and 32 MB; at 32 KiB it
+# is the same 34 requests for 1.2 MB, which turns a Lambda's open phase from
+# bandwidth-bound (about 110 MB/s) into latency-bound. Coarsely chunked files
+# read a few hundred KB either way.
+HDF_READ_BLOCK_BYTES = 32 * 1024
+HDF_READ_CACHE_BYTES = 64 * 1024 * 1024
 LOADABLE = ("time", "x", "y", "z", "month", "time_bnds", "time_bounds", *SOURCE_CRS_VARS)
 #: Variables dropped: regenerable bounds, 2-D lat/lon, source CRS scalars.
 DROP = (
@@ -366,6 +378,18 @@ class OpenedFile:
     notes: list[str] = field(default_factory=list)
 
 
+def _block_reader(store, path: str):
+    """The parser's file reader with :data:`HDF_READ_BLOCK_BYTES` blocks."""
+    from obspec_utils.readers import BlockStoreReader
+
+    return BlockStoreReader(
+        store,
+        path,
+        block_size=HDF_READ_BLOCK_BYTES,
+        max_cached_blocks=HDF_READ_CACHE_BYTES // HDF_READ_BLOCK_BYTES,
+    )
+
+
 def open_forcing_file(
     key: str,
     registry,
@@ -394,7 +418,10 @@ def open_forcing_file(
         vds = open_virtual_dataset(
             url or key_to_url(key),
             registry=registry,
-            parser=HDFParser(drop_variables=[v for v in DROP if v not in LOADABLE]),
+            parser=HDFParser(
+                drop_variables=[v for v in DROP if v not in LOADABLE],
+                reader_factory=_block_reader,
+            ),
             loadable_variables=list(LOADABLE),
             decode_times=False,
         )

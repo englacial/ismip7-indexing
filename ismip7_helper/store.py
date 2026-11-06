@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import subprocess
+import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -898,11 +899,18 @@ def verify_group(
         picks = rng.choice(len(files), min(n_files, len(files)), replace=False)
         for url, t0 in (files[i] for i in picks):
             checked.append((var, url))
+            started = time.monotonic()
             try:
                 arr = stored[var]
                 axis = arr.dims[0]
                 with (opener or open_source)(url) as fh:
                     n_src, ks, src = _source_steps(fh, var, n_steps, rng)
+                logger.info(
+                    "%s: verify %s: source steps read in %.1f s",
+                    gp,
+                    var,
+                    time.monotonic() - started,
+                )
                 if t0 + n_src > arr.sizes[axis]:
                     mismatches.append(
                         f"{var} @ {url}: {n_src} steps from {t0} exceed the stored "
@@ -911,6 +919,13 @@ def verify_group(
                     continue
                 for k, s in zip(ks, src, strict=True):
                     got = arr.isel({axis: t0 + k}).values
+                    logger.info(
+                        "%s: verify %s: step %d compared at %.1f s",
+                        gp,
+                        var,
+                        k,
+                        time.monotonic() - started,
+                    )
                     if got.shape != s.shape or not np.array_equal(got, s, equal_nan=True):
                         diff = np.nanmax(np.abs(got - s)) if got.shape == s.shape else "n/a"
                         mismatches.append(

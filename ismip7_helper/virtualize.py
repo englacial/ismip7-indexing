@@ -516,7 +516,69 @@ def _check_fill_values(label: str, items: list[OpenedFile], var: str) -> None:
             )
 
 
-def _concat_variable(group_path: str, var: str, items: list[OpenedFile]) -> xr.Dataset:
+def _codec_dicts(codecs, *, drop_level: bool) -> list[dict]:
+    out = []
+    for c in codecs:
+        d = c.to_dict()
+        if drop_level and d.get("name") == "numcodecs.zlib":
+            d = {
+                **d,
+                "configuration": {k: v for k, v in d["configuration"].items() if k != "level"},
+            }
+        out.append(d)
+    return out
+
+
+def _zlib_level(codecs) -> int | None:
+    for c in codecs:
+        d = c.to_dict()
+        if d.get("name") == "numcodecs.zlib":
+            return d["configuration"].get("level")
+    return None
+
+
+def _normalize_codecs(label: str, items: list[OpenedFile], var: str) -> list[str]:
+    """Re-label zlib codecs that differ from the first file's only in level.
+
+    Decoding a zlib stream does not depend on the level it was written at,
+    so files of one series written at levels 1 and 5 (GrIS ``dtsdz`` in the
+    CESM2-WACCM ssp runs) are one array; ManifestArray refuses to
+    concatenate differing codecs, so the metadata is rewritten to the first
+    file's. Any other codec difference is left for the concatenation to reject.
+    """
+    from dataclasses import replace
+
+    from virtualizarr.manifests import ManifestArray
+
+    ref = items[0].ds[var].data
+    if not isinstance(ref, ManifestArray):
+        return []
+    ref_codecs = ref.metadata.codecs
+    ref_dicts = _codec_dicts(ref_codecs, drop_level=True)
+    notes = []
+    for o in items[1:]:
+        marr = o.ds[var].data
+        if not isinstance(marr, ManifestArray) or marr.metadata.codecs == ref_codecs:
+            continue
+        if _codec_dicts(marr.metadata.codecs, drop_level=True) != ref_dicts:
+            continue
+        new = ManifestArray(
+            metadata=replace(marr.metadata, codecs=ref_codecs), chunkmanifest=marr.manifest
+        )
+        ds = o.ds.copy()
+        ds[var] = ds[var].copy(data=new)
+        o.ds = ds
+        notes.append(
+            f"{var}: {os.path.basename(o.forcing.key)}: zlib level "
+            f"{_zlib_level(marr.metadata.codecs)} re-labelled as level "
+            f"{_zlib_level(ref_codecs)} (decoding does not depend on it)"
+        )
+    return notes
+
+
+def _concat_variable(
+    group_path: str, var: str, items: list[OpenedFile]
+) -> tuple[xr.Dataset, list[str]]:
     label = f"{group_path}/{var}"
     items.sort(key=lambda o: (o.forcing.year_start or 0, o.forcing.year_end or 0))
     versions = sorted({o.forcing.version for o in items}, key=lambda v: (v is None, v))
@@ -531,8 +593,9 @@ def _concat_variable(group_path: str, var: str, items: list[OpenedFile]) -> xr.D
         if b0 != a1 + 1:
             raise VirtualizeError(f"{label}: gap between files {a0}-{a1} and {b0}-{b1}")
     if len(items) == 1:
-        return items[0].ds
+        return items[0].ds, []
     _check_fill_values(label, items, var)
+    notes = _normalize_codecs(label, items, var)
     try:
         ds = xr.concat(
             [o.ds for o in items],
@@ -551,7 +614,7 @@ def _concat_variable(group_path: str, var: str, items: list[OpenedFile]) -> xr.D
     t = ds["time"].values
     if len(t) > 1 and not np.all(np.diff(t) > 0):
         raise VirtualizeError(f"{label}: time is not strictly increasing across files")
-    return ds
+    return ds, notes
 
 
 def concat_group(
@@ -647,7 +710,10 @@ def concat_group(
     for o in opened:
         by_var.setdefault(o.forcing.variable or "", []).append(o)
 
-    per_var = {var: _concat_variable(group_path, var, items) for var, items in by_var.items()}
+    per_var: dict[str, xr.Dataset] = {}
+    for var, items in by_var.items():
+        per_var[var], var_notes = _concat_variable(group_path, var, items)
+        notes.extend(var_notes)
     for var in per_var:
         # a shallow copy, so the attribute does not leak into the caller's OpenedFile
         per_var[var] = ds = per_var[var].copy()
@@ -675,7 +741,6 @@ def concat_group(
         for var in with_time:
             groups_by_axis.setdefault(tuple(per_var[var]["time"].values.tolist()), []).append(var)
         axis_notes = _align_time_axes(groups_by_axis, per_var)
-        notes.extend(axis_notes)
         names: dict[tuple, str] = {}
         for key in sorted(groups_by_axis, key=len, reverse=True):
             n_years = len(set(time_years(np.asarray(key))))
@@ -688,6 +753,18 @@ def concat_group(
                 else f"time_{steps_per_year}"
             )
             clash = next((k for k, v in names.items() if v == name), None)
+            if (
+                clash is not None
+                and _is_prefix(key, clash)
+                and len(clash) - len(key) <= steps_per_year
+            ):
+                # the same axis, cut short by at most one file: ``dmrrodz`` ends
+                # at 2299 where its siblings end at 2300. Pad the short variables
+                # with missing chunks (read as the fill value) and record it. A
+                # larger shortfall is a defect.
+                axis_notes.extend(_pad_to_axis(per_var, groups_by_axis[key], key, clash))
+                groups_by_axis[clash].extend(groups_by_axis.pop(key))
+                continue
             if clash is not None:
                 a, b = groups_by_axis[key][0], groups_by_axis[clash][0]
                 t, ref = np.asarray(key), np.asarray(clash)
@@ -698,6 +775,7 @@ def concat_group(
                 )
                 raise VirtualizeError(f"{group_path}: time axis of {a} differs from {b} ({detail})")
             names[key] = name
+        notes.extend(axis_notes)
         if "time" not in names.values():
             # no monthly axis: the most populous one is plain ``time``
             first = max(names, key=len)
@@ -757,6 +835,66 @@ def concat_group(
 
 #: Monthly stamps this close (days) are the same axis with a skewed encoding.
 TIME_AXIS_TOLERANCE_DAYS = 2.0
+
+
+def _is_prefix(short: tuple, long: tuple) -> bool:
+    return len(short) < len(long) and np.array_equal(
+        np.asarray(short), np.asarray(long[: len(short)])
+    )
+
+
+def _pad_to_axis(
+    per_var: dict[str, xr.Dataset], variables: list[str], short: tuple, long: tuple
+) -> list[str]:
+    """Extend ``variables`` from the ``short`` time axis to ``long`` with missing chunks.
+
+    Virtual arrays get chunks with no source (the store reads them as the
+    fill value); loaded variables along ``time`` (bounds) get NaN rows. The
+    padded part must start on a chunk boundary, which holds for the one-step
+    time chunks of the forcing files.
+    """
+    from dataclasses import replace
+
+    from virtualizarr.manifests import ChunkManifest, ManifestArray
+
+    k = len(long) - len(short)
+    missing_years = sorted(set(time_years(np.asarray(long[len(short) :]))))
+    notes = []
+    for var in variables:
+        ds = per_var[var]
+        out = {}
+        for name, v in ds.variables.items():
+            if v.dims[:1] != ("time",) or name == "time":
+                continue
+            if isinstance(v.data, ManifestArray):
+                marr = v.data
+                tchunk = marr.metadata.chunks[0]
+                if tchunk != 1 or len(short) % tchunk:
+                    raise VirtualizeError(
+                        f"{var}: cannot pad a time axis chunked by {tchunk} steps"
+                    )
+                grid = (k, *marr.manifest.shape_chunk_grid[1:])
+                pad = ManifestArray(
+                    metadata=replace(marr.metadata, shape=(k, *marr.shape[1:])),
+                    chunkmanifest=ChunkManifest.from_arrays(
+                        paths=np.full(grid, "", dtype=np.dtypes.StringDType()),
+                        offsets=np.zeros(grid, dtype=np.uint64),
+                        lengths=np.zeros(grid, dtype=np.uint64),
+                    ),
+                )
+                data = np.concatenate([marr, pad], axis=0)
+            else:
+                fill = np.full((k, *v.shape[1:]), np.nan, dtype=np.result_type(v.dtype, np.float32))
+                data = np.concatenate([np.asarray(v.values), fill], axis=0)
+            out[name] = (v.dims, data, dict(v.attrs))
+        time_attrs = dict(ds["time"].attrs)
+        padded = ds.drop_vars([*out, "time"]).assign(out)
+        per_var[var] = padded.assign_coords(time=("time", np.asarray(long), time_attrs))
+        notes.append(
+            f"{var}: {k} missing step(s) at the end of its time axis "
+            f"({', '.join(map(str, missing_years))}); padded, read as the fill value"
+        )
+    return notes
 
 
 def _align_time_axes(

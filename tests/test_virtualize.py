@@ -361,12 +361,16 @@ def test_concat_group_multistep_chunks_with_short_last_file(synthetic_root, loca
 
 
 def test_concat_group_rejects_time_mismatch(synthetic_root, local_registry):
-    keys = [_key(var="acabf", year=1850), _key(var="acabf", year=1851), _key(var="tas", year=1850)]
+    """A series short by more than one file is a defect; short by one file it is padded."""
+    keys = [_key(var="acabf", year=y) for y in (1850, 1851, 1852)] + [_key(var="tas", year=1850)]
     with pytest.raises(
         VirtualizeError,
-        match=r"time axis of tas differs from acabf \(12 vs 24 steps\)",
+        match=r"time axis of tas differs from acabf \(12 vs 36 steps\)",
     ):
         _group(synthetic_root, local_registry, [(k, {}) for k in keys])
+    g = _group(synthetic_root, local_registry, [(k, {}) for k in keys[:2] + keys[3:]])
+    assert g.ds.sizes["time"] == 24 and g.ds["tas"].shape[0] == 24
+    assert any(n.startswith("tas: 12 missing step(s) at the end") for n in g.notes)
 
 
 def _shifted_months(days: float) -> np.ndarray:
@@ -611,3 +615,57 @@ def test_concat_group_keeps_monthly_and_annual_variables_on_separate_axes(
     assert ds["dacabfdz"].dims == ("time_annual", "y", "x") and ds.sizes["time_annual"] == 2
     assert ds["time_annual"].attrs["units"] == "days since 1850-01-01"
     assert ds.attrs["ismip7_time_axes"] == ["time: acabf", "time_annual: dacabfdz"]
+
+
+def test_concat_group_relabels_zlib_level_changes(synthetic_root, local_registry):
+    """GrIS dtsdz switches from zlib level 1 to 5 mid-series; decoding does not care."""
+    specs = [
+        (_key(var="tas", year=1850), {"complevel": 1}),
+        (_key(var="tas", year=1851), {"complevel": 5}),
+        (_key(var="tas", year=1852), {"complevel": 5}),
+    ]
+    g = _group(synthetic_root, local_registry, specs)
+    assert g.ds.sizes["time"] == 36
+    codecs = [c.to_dict() for c in g.ds["tas"].data.metadata.codecs]
+    assert [c["configuration"]["level"] for c in codecs if c["name"] == "numcodecs.zlib"] == [1]
+    relabel = [n for n in g.notes if "zlib level 5 re-labelled as level 1" in n]
+    assert len(relabel) == 2 and relabel[0].startswith("tas: tas_AIS_")
+
+
+def test_concat_group_pads_a_short_annual_series(synthetic_root, local_registry):
+    """dmrrodz ends a year before its siblings: padded with a missing chunk, noted."""
+    import cftime
+
+    keys, urls = [], {}
+
+    def annual(year):
+        return np.asarray(
+            cftime.date2num(
+                [cftime.datetime(year, 7, 1, calendar="standard")],
+                "days since 1850-01-01 00:00:00",
+                "standard",
+            ),
+            dtype="f8",
+        )
+
+    for var, years in (("acabf", (1850, 1851)), ("dacabfdz", (1850, 1851)), ("dmrrodz", (1850,))):
+        for year in years:
+            k = _key(var=var, year=year)
+            n_time = 12 if var == "acabf" else 1
+            tv = None if n_time == 12 else annual(year)
+            urls[k] = _write(synthetic_root, k, n_time=n_time, time_values=tv)
+            keys.append(k)
+    g = concat_group([parse_key(k).forcing for k in keys], local_registry, urls=urls)
+    ds = g.ds
+    assert ds.sizes["time"] == 24 and ds.sizes["time_annual"] == 2
+    assert ds["dmrrodz"].dims == ("time_annual", "y", "x") and ds["dmrrodz"].shape[0] == 2
+    np.testing.assert_array_equal(
+        ds["time_annual"].values, np.concatenate([annual(1850), annual(1851)])
+    )
+    manifest = ds["dmrrodz"].data.manifest
+    assert (
+        manifest.shape_chunk_grid[0] == 2 and "1.0.0" not in manifest.dict()
+    )  # the pad has no source
+    note = "dmrrodz: 1 missing step(s) at the end of its time axis (1851); padded, read as the fill value"
+    assert note in ds.attrs["ismip7_time_axis_notes"] and note in g.notes
+    assert ds.attrs["ismip7_time_axes"] == ["time: acabf", "time_annual: dacabfdz, dmrrodz"]

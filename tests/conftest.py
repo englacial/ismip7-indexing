@@ -50,6 +50,7 @@ def write_forcing_file(
     coord_fill_nan: bool = False,
     y_descending: bool = False,
     global_attrs: dict | None = None,
+    complevel: int = 1,
 ) -> Path:
     """Write a NetCDF4 file shaped like an ISMIP7 monthly forcing file.
 
@@ -114,7 +115,7 @@ def write_forcing_file(
             "f4",
             ("time", "y", "x"),
             zlib=True,
-            complevel=1,
+            complevel=complevel,
             shuffle=True,
             chunksizes=chunks or (1, grid.ny, grid.nx),
             fill_value=np.float32(fill_value),

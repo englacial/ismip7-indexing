@@ -763,14 +763,23 @@ def _open_with_processes(
     runtime threads (a warm Lambda, an opened repository), and a forked
     child of a threaded process can deadlock. The server preloads this
     module, so each worker starts without re-importing xarray and friends.
+    On macOS the preloaded forkserver's children crash (fork safety of the
+    Rust runtime threads), so ``spawn`` is used there instead.
     Raises :class:`PoolStartError` when the processes cannot be started.
     """
     import multiprocessing
+    import sys
     from multiprocessing.connection import wait
 
     n = max(1, min(n, len(items)))
-    ctx = multiprocessing.get_context("forkserver")
-    ctx.set_forkserver_preload(["ismip7_helper.virtualize"])
+    if sys.platform == "darwin":
+        # macOS: a forkserver that has preloaded this module holds icechunk /
+        # obstore runtime threads, and its forked children crash (SIGSEGV).
+        # spawn starts clean interpreters; each re-imports the module (~1 s).
+        ctx = multiprocessing.get_context("spawn")
+    else:
+        ctx = multiprocessing.get_context("forkserver")
+        ctx.set_forkserver_preload(["ismip7_helper.virtualize"])
     procs: list = []
     readers: dict = {}  # read end -> its worker process
     try:
@@ -832,7 +841,8 @@ def _open_with_processes(
 
 
 def _common_prefix(keys: list[str]) -> str:
-    return os.path.commonprefix(keys).rsplit("/", 1)[0] + "/" if keys else ""
+    # character-wise prefix on purpose, then cut back to a directory boundary
+    return os.path.commonprefix(keys).rsplit("/", 1)[0] + "/" if keys else ""  # noqa: RUF071
 
 
 __all__ = [

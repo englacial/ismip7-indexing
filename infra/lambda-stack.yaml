@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  ISMIP7 virtualization worker: one Lambda (container image) that virtualizes
+  one ISMIP7 store group per invocation into the englacial Icechunk stores on
+  source.coop. See docs/lambda.md. Deploy with infra/deploy.sh.
+
+Parameters:
+  FunctionName:
+    Type: String
+    Default: ismip7-virtualize
+  ImageUri:
+    Type: String
+    Description: >
+      Full ECR image URI (with tag or digest) of the image built from
+      Dockerfile.lambda. The ECR repository is created by this stack, so the
+      first deploy uses the bootstrap image (see deploy.sh) and a second
+      update sets the real one.
+  SecretName:
+    Type: String
+    Default: ismip7/sc_creds
+    Description: Secrets Manager secret holding the source.coop sc_creds.json content (set its value out of band).
+  MemorySize:
+    Type: Number
+    Default: 10240
+    Description: MB. 10240 gives 6 vCPUs; the handler runs one worker process per vCPU.
+  Timeout:
+    Type: Number
+    Default: 900
+  ReservedConcurrency:
+    Type: Number
+    Default: 50
+
+Resources:
+  Repository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: !Ref FunctionName
+      ImageTagMutability: MUTABLE
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"keep last 5","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":5},"action":{"type":"expire"}}]}'
+
+  WriteCredentialsSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: !Ref SecretName
+      Description: source.coop temporary write credentials for englacial/ismip7 (sc_creds.json content, with Expiration). Rotate before they expire.
+      SecretString: '{"placeholder": "set with: aws secretsmanager put-secret-value --secret-id ismip7/sc_creds --secret-string file://sc_creds.json"}'
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${FunctionName}-execution"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: read-write-credentials-secret
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref WriteCredentialsSecret
+      # Reads of the public source bucket are anonymous; the target bucket is
+      # written with the source.coop credentials from the secret, not this role.
+
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref FunctionName
+      PackageType: Image
+      Code:
+        ImageUri: !Ref ImageUri
+      Role: !GetAtt ExecutionRole.Arn
+      Architectures: [x86_64]
+      MemorySize: !Ref MemorySize
+      Timeout: !Ref Timeout
+      EphemeralStorage: { Size: 2048 }
+      ReservedConcurrentExecutions: !Ref ReservedConcurrency
+      Environment:
+        Variables:
+          ISMIP7_WRITE_CREDS_SECRET: !Ref SecretName
+          ISMIP7_LOG_LEVEL: INFO
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${FunctionName}"
+      RetentionInDays: 30
+
+Outputs:
+  RepositoryUri:
+    Value: !GetAtt Repository.RepositoryUri
+  FunctionArn:
+    Value: !GetAtt Function.Arn
+  RoleArn:
+    Value: !GetAtt ExecutionRole.Arn
+  SecretArn:
+    Value: !Ref WriteCredentialsSecret

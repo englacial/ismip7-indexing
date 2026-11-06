@@ -53,7 +53,13 @@ remain after opening the files, it returns `status: failed, error:
 finish. Lambda would otherwise kill it with `Sandbox.Timedout`. Such a group
 needs a lower `--max-lambda-seconds` or a big machine.
 
-## One-time setup (Astera account, us-west-2)
+## One-time setup (Astera account 429435741471, us-west-2)
+
+The resources below are also declared in `infra/lambda-stack.yaml`
+(CloudFormation: ECR repository, execution role, Secrets Manager secret,
+the function, its log group) and created or updated by `infra/deploy.sh`,
+which also builds and pushes the image. The manual steps that follow are
+what the stack does, for reference.
 
 1. ECR repository: `aws ecr create-repository --repository-name ismip7-virtualize`.
 2. Build and push the image. Use `buildx` with `--platform linux/amd64` (Docker on

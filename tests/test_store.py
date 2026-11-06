@@ -639,3 +639,36 @@ def test_kept_missing_value_masks_on_read(synthetic_root, local_target):
     ds = open_group(repo, result.group_path)
     assert np.isnan(ds["acabf"].values[0, 0, 0]) and np.isfinite(ds["acabf"].values[0, 0, 1])
     assert verify_group(repo, result, n_files=1).ok
+
+
+def test_write_group_restages_after_losing_its_rebase_races(local_group, local_target, monkeypatch):
+    """A commit that exhausts its rebase tries (ConflictError) is re-staged after a pause."""
+    import icechunk
+
+    from ismip7_helper import store as store_mod
+
+    result, _ = local_group
+    repo = open_repository(local_target, create=True)
+    pauses: list[int] = []
+    monkeypatch.setattr(store_mod, "_conflict_pause", lambda gp, attempt: pauses.append(attempt))
+    real_session = repo.writable_session
+    failures = {"left": 1}
+
+    def _raise(*a, **k):
+        raise icechunk.ConflictError("Failed to commit, expected parent: x, actual parent: y")
+
+    def flaky_session(branch):
+        session = real_session(branch)
+        if failures["left"] > 0:
+            failures["left"] -= 1
+            session.commit = _raise  # type: ignore[method-assign]
+        return session
+
+    monkeypatch.setattr(repo, "writable_session", flaky_session)
+    wr = write_group(repo, result)
+    assert pauses == [0] and wr.group_path in existing_groups(repo)
+
+    failures["left"] = 10  # every attempt fails: the error surfaces after restage_tries
+    with pytest.raises(icechunk.ConflictError):
+        write_group(repo, result, overwrite=True, restage_tries=1)
+    assert pauses == [0, 0]

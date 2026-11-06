@@ -175,6 +175,24 @@ def plan_groups(
     return Plan(write, skip)
 
 
+def _verify_within(timeout_s: float | None, *args, **kwargs):
+    """``verify_group`` in a daemon thread; ``None`` if it has not returned in ``timeout_s``."""
+    if timeout_s is None:
+        return verify_group(*args, **kwargs)
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import TimeoutError as FutureTimeout
+
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ismip7-verify")
+    try:
+        future = pool.submit(verify_group, *args, **kwargs)
+        try:
+            return future.result(timeout=max(timeout_s, 0))
+        except FutureTimeout:
+            return None
+    finally:
+        pool.shutdown(wait=False)  # a stuck reader dies with the process
+
+
 def commit_group(
     repo: Any,
     result: GroupResult,
@@ -182,6 +200,7 @@ def commit_group(
     overwrite: bool = False,
     verify_files: int = 0,
     branch: str = "main",
+    verify_timeout_s: float | None = None,
 ) -> GroupRun:
     """Write a concatenated group, then (with ``verify_files``) verify it.
 
@@ -189,7 +208,9 @@ def commit_group(
     commit sets ``ismip7_verified``; on failure the group is deleted again,
     so the store never carries a group known to be bad. Exceptions from the
     write propagate; any after it are recorded on the returned run (with
-    ``committed=True``).
+    ``committed=True``). A verification still running after
+    ``verify_timeout_s`` (a stalled read) is abandoned: the group stays
+    written but unverified, and the run says so in ``error``.
     """
     wr = write_group(repo, result, overwrite=overwrite, branch=branch)
     run = GroupRun(
@@ -205,7 +226,12 @@ def commit_group(
     if not verify_files:
         return run
     try:
-        vr = verify_group(repo, result, n_files=verify_files, snapshot_id=wr.snapshot_id)
+        vr = _verify_within(
+            verify_timeout_s, repo, result, n_files=verify_files, snapshot_id=wr.snapshot_id
+        )
+        if vr is None:
+            run.error = f"verification timed out after {verify_timeout_s:.0f} s"
+            return run
         run.verify_mismatches = vr.mismatches
         if vr.ok:
             mark_verified(repo, result.group_path, wr.snapshot_id, branch=branch)

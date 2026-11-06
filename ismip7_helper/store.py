@@ -525,15 +525,18 @@ def write_group(
     *,
     overwrite: bool = False,
     branch: str = "main",
-    rebase_tries: int = 50,
+    rebase_tries: int = 200,
     message: str | None = None,
-    restage_tries: int = 3,
+    restage_tries: int = 8,
 ) -> WriteResult:
     """Write one group in its own commit, rebasing on concurrent commits to other groups.
 
     Call :func:`ensure_hierarchy` first so the parents exist. As a backstop,
     a rebase that fails only because another session created the same
-    ancestor group is retried in a fresh session (up to ``restage_tries``).
+    ancestor group is retried in a fresh session (up to ``restage_tries``),
+    and so is a commit that lost every one of its ``rebase_tries`` races
+    (a hundred Lambdas committing at once): after a random pause, so the
+    herd thins out.
 
     Virtual references are stamped with ``result.opened_at`` (when the
     headers were read), so a source file republished after that is refused
@@ -580,33 +583,60 @@ def write_group(
                 logger.warning("%s: a parent group was created concurrently; re-staging", gp)
                 continue
             raise
+        except icechunk.ConflictError:
+            if attempt >= restage_tries:
+                raise
+            _conflict_pause(gp, attempt)
     nrefs = int(result.ds.vz.nrefs())
     nbytes = int(result.ds.vz.nbytes)
     logger.info("committed %s as %s (%d refs)", gp, snap, nrefs)
     return WriteResult(gp, snap, result.n_files, nbytes, nrefs, digest)
 
 
+def _conflict_pause(group_path: str, attempt: int) -> None:
+    """Sleep a random 1-8 s (growing with ``attempt``) before re-staging a commit."""
+    import random
+    import time
+
+    pause = random.uniform(1, 4) * min(attempt + 1, 2)
+    logger.warning("%s: commit lost its rebase races; re-staging in %.1f s", group_path, pause)
+    time.sleep(pause)
+
+
 def mark_verified(
-    repo: Any, group_path: str, snapshot_id: str, *, branch: str = "main", rebase_tries: int = 50
+    repo: Any,
+    group_path: str,
+    snapshot_id: str,
+    *,
+    branch: str = "main",
+    rebase_tries: int = 200,
+    restage_tries: int = 8,
 ) -> str:
     """Set ``ismip7_verified = <snapshot_id>`` on the group in a small follow-up commit."""
     import icechunk
     import zarr
 
-    session = repo.writable_session(branch)
-    g = zarr.open_group(session.store, path=group_path, mode="r+")
-    g.attrs[VERIFIED_ATTR] = snapshot_id
-    return session.commit(
-        f"verified {group_path}",
-        metadata={
-            "operation": "mark_verified",
-            "group": group_path,
-            "verified_snapshot": snapshot_id,
-            **provenance(),
-        },
-        rebase_with=icechunk.ConflictDetector(),
-        rebase_tries=rebase_tries,
-    )
+    for attempt in range(restage_tries + 1):
+        session = repo.writable_session(branch)
+        g = zarr.open_group(session.store, path=group_path, mode="r+")
+        g.attrs[VERIFIED_ATTR] = snapshot_id
+        try:
+            return session.commit(
+                f"verified {group_path}",
+                metadata={
+                    "operation": "mark_verified",
+                    "group": group_path,
+                    "verified_snapshot": snapshot_id,
+                    **provenance(),
+                },
+                rebase_with=icechunk.ConflictDetector(),
+                rebase_tries=rebase_tries,
+            )
+        except icechunk.ConflictError:
+            if attempt >= restage_tries:
+                raise
+            _conflict_pause(group_path, attempt)
+    raise AssertionError("unreachable")
 
 
 def delete_group(
@@ -640,8 +670,10 @@ def existing_groups(repo: Any, branch: str = "main") -> dict[str, dict[str, Any]
 
     A group counts when its attributes carry ``ismip7_group`` (every group
     :func:`~.virtualize.concat_group` builds does); ancestors created by
-    :func:`ensure_hierarchy` do not. Reads one store listing plus the
-    ``zarr.json`` of each node that has children, so arrays are never opened.
+    :func:`ensure_hierarchy` do not. Walks the group tree with ``list_dir``
+    and reads one ``zarr.json`` per group, stopping at data groups, so no
+    array and no manifest is ever touched (a full ``store.list()`` would
+    enumerate every chunk key: millions, read from every manifest).
     A fresh repository (no root group yet) gives ``{}``.
     """
     from zarr.core.buffer import default_buffer_prototype
@@ -652,25 +684,25 @@ def existing_groups(repo: Any, branch: str = "main") -> dict[str, dict[str, Any]
     async def _collect() -> dict[str, dict[str, Any]]:
         import asyncio
 
-        nodes = set()
-        async for k in store.list():
-            if k == "zarr.json":
-                nodes.add("")
-            elif k.endswith("/zarr.json"):
-                nodes.add(k[: -len("/zarr.json")])
-        parents = sorted({n.rpartition("/")[0] for n in nodes if n} & nodes)
         proto = default_buffer_prototype()
-        bufs = await asyncio.gather(
-            *(store.get(f"{p}/zarr.json" if p else "zarr.json", prototype=proto) for p in parents)
-        )
         found: dict[str, dict[str, Any]] = {}
-        for p, buf in zip(parents, bufs, strict=True):
+
+        async def visit(path: str) -> None:
+            buf = await store.get(f"{path}/zarr.json" if path else "zarr.json", prototype=proto)
             if buf is None:
-                continue
+                return
             meta = json.loads(buf.to_bytes())
+            if meta.get("node_type") != "group":
+                return
             attrs = meta.get("attributes") or {}
-            if meta.get("node_type") == "group" and "ismip7_group" in attrs:
-                found[p] = attrs
+            if "ismip7_group" in attrs:
+                found[path] = attrs  # a data group: its children are arrays
+                return
+            names = [n async for n in store.list_dir(path)]
+            children = [n.rstrip("/") for n in names if n.rstrip("/") != "zarr.json"]
+            await asyncio.gather(*(visit(f"{path}/{c}" if path else c) for c in children))
+
+        await visit("")
         return found
 
     return sync(_collect())

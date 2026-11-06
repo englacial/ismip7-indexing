@@ -717,3 +717,33 @@ def test_failed_open_still_reports_open_timings(synthetic_root, tmp_path, monkey
     assert out["status"] == "failed" and "differs" in out["error"]
     t = out["timings"]
     assert t["open"] >= 0 and t["open_cpu"] >= 0  # utilization needs a nonzero wall time
+
+
+def test_verification_that_stalls_is_abandoned_at_the_deadline(
+    synthetic_root, tmp_path, monkeypatch
+):
+    """A stuck verification read must not take the whole invocation: the group stays
+    written but unverified, and the run says why."""
+    import threading
+    import time
+
+    from ismip7_helper import pipeline
+    from ismip7_helper.lambda_handler import DEADLINE_MARGIN_S
+
+    monkeypatch.setenv("ISMIP7_WORKERS", "1")
+    keys, urls = _make_group(synthetic_root)
+    ev = _event(synthetic_root, tmp_path, keys, urls, verify=1)
+    _prepare(ev)
+    release = threading.Event()
+    monkeypatch.setattr(pipeline, "verify_group", lambda *a, **k: release.wait(30))
+
+    class Ctx:
+        def get_remaining_time_in_millis(self):
+            return int((DEADLINE_MARGIN_S + 1.5) * 1000)  # 1.5 s for the verification
+
+    t0 = time.time()
+    out = run_event(ev, context=Ctx())
+    release.set()
+    assert time.time() - t0 < 20
+    assert out["status"] == "written" and out["committed"] is True
+    assert "verification timed out" in out["error"]

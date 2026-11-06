@@ -305,6 +305,8 @@ def run_event(
                 result,
                 overwrite=bool(event.get("overwrite", False)),
                 verify_files=int(event.get("verify", 0)),
+                # a stalled verification read must not take the whole 900 s
+                verify_timeout_s=(left - DEADLINE_MARGIN_S) if left is not None else None,
             )
             timings["commit"] = round(time.time() - t0 - timings["open"], 1)
             timings["commit_cpu"] = round(_cpu_seconds() - cpu1, 1)  # single-threaded tail

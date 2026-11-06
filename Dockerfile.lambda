@@ -1,27 +1,38 @@
 # Lambda container image for ismip7_helper.lambda_handler.
 #
+#   uv export --extra lambda --no-emit-project --no-hashes --no-dev -o requirements-lambda.txt
 #   docker buildx build --platform linux/amd64 --provenance=false \
 #       --build-arg GIT_SHA=$(git rev-parse HEAD) -f Dockerfile.lambda -t ismip7-virtualize --load .
-#   # push to ECR and create/update the function; see docs/lambda.md
+#   # push to ECR and create/update the function; see docs/lambda.md (infra/deploy.sh does all of this)
 #
 # --platform linux/amd64 matches create-function's default architecture (an
 # Apple-silicon build is arm64 otherwise); --provenance=false keeps buildx
 # from pushing an OCI index with attestations, which Lambda rejects.
+#
+# The dependencies are installed first, from the exported lock file, so that
+# layer (about 1 GB) only changes with uv.lock and a code change re-pushes
+# just the small layers below it. GIT_SHA is used after that layer for the
+# same reason: an ARG or ENV that changes every build invalidates the cache
+# of everything after it.
 #
 # Memory sets vCPUs (10240 MB = 6 vCPUs); the handler sizes its worker pool
 # from os.cpu_count(). Timeout 900 s. Only /tmp is writable, and there is no
 # /dev/shm (the handler's worker processes use pipes, not semaphores).
 FROM public.ecr.aws/lambda/python:3.12
 
+ENV PIP_NO_CACHE_DIR=1 \
+    ISMIP7_LOG_LEVEL=INFO
+
+COPY requirements-lambda.txt /tmp/requirements-lambda.txt
+RUN pip install -r /tmp/requirements-lambda.txt
+
 # recorded in every commit's metadata; the build fails without it
 ARG GIT_SHA=""
 RUN test -n "$GIT_SHA" || (echo "build with --build-arg GIT_SHA=\$(git rev-parse HEAD)" >&2; exit 1)
-ENV PIP_NO_CACHE_DIR=1 \
-    ISMIP7_LOG_LEVEL=INFO \
-    ISMIP7_GIT_SHA=${GIT_SHA}
+ENV ISMIP7_GIT_SHA=${GIT_SHA}
 
 COPY pyproject.toml README.md LICENSE ${LAMBDA_TASK_ROOT}/
 COPY ismip7_helper/ ${LAMBDA_TASK_ROOT}/ismip7_helper/
-RUN pip install "${LAMBDA_TASK_ROOT}[lambda]"
+RUN pip install --no-deps "${LAMBDA_TASK_ROOT}"
 
 CMD ["ismip7_helper.lambda_handler.handler"]

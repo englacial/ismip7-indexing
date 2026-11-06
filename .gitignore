@@ -13,3 +13,4 @@ sc_creds.json
 run-*.json
 run-*.json.tmp
 big-groups-*.txt
+requirements-lambda.txt

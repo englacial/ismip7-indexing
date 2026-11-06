@@ -621,41 +621,41 @@ def _normalize_codecs(label: str, items: list[OpenedFile], var: str) -> list[str
 def _placeholder_tails(
     label: str, items: list[OpenedFile], var: str
 ) -> tuple[list[NativeTail], list[str]]:
-    """Swap trailing files chunked unlike the series for placeholders to fill natively.
+    """Swap files chunked unlike the series for placeholders to fill natively.
 
-    The last file of a series can be chunked differently from the rest (the
+    A file of a series can be chunked differently from the rest (the
     writer's auto-chunking follows the file's shape: the five-year 2010-2014
-    AIS ocean files, the two-month 2026 EN4 file). A Zarr array has one
+    AIS ocean files, the two-month 2026 EN4 file, CanESM5's one-year
+    1860-1860 ocean file in the middle of its series). A Zarr array has one
     chunk grid, and these files are gzip-chunked, so their chunks cannot be
-    re-cut by reference. Instead each such trailing file becomes a
-    placeholder with the series' chunk grid and no sources, and a
+    re-cut by reference. Instead each file chunked unlike the majority
+    becomes a placeholder with the series' chunk grid and no sources, and a
     :class:`NativeTail` tells the writer to copy its steps into the store
-    as native chunks. Mismatches anywhere but at the end are left for the
-    concatenation to reject.
+    as native chunks. A file that would start inside a chunk of that grid
+    is left for the concatenation to reject.
     """
     from dataclasses import replace
 
     from virtualizarr.manifests import ChunkManifest, ManifestArray
 
-    ref = items[0].ds[var].data
-    if not isinstance(ref, ManifestArray):
+    arrays = [o.ds[var].data for o in items]
+    if not all(isinstance(a, ManifestArray) for a in arrays):
         return [], []
-    ref_chunks = tuple(ref.metadata.chunks)
-    odd = [
-        i
-        for i, o in enumerate(items)
-        if isinstance(o.ds[var].data, ManifestArray)
-        and tuple(o.ds[var].data.metadata.chunks) != ref_chunks
-    ]
-    if not odd or odd != list(range(odd[0], len(items))):
+    shapes = [tuple(a.metadata.chunks) for a in arrays]
+    # the series' grid: the most common chunk shape, the earliest on a tie
+    ref_chunks = max(dict.fromkeys(shapes), key=shapes.count)
+    ref = arrays[shapes.index(ref_chunks)]
+    odd = [i for i, c in enumerate(shapes) if c != ref_chunks]
+    if not odd:
         return [], []
-    start = sum(int(o.ds[var].shape[0]) for o in items[: odd[0]])
-    if start % ref_chunks[0]:
-        return [], []  # the tail would begin inside a chunk
+    starts = np.cumsum([0, *(int(a.shape[0]) for a in arrays)])
+    if any(starts[i] % ref_chunks[0] for i in odd):
+        return [], []  # a placeholder would begin inside a chunk
     tails, notes = [], []
     for i in odd:
         o = items[i]
-        marr = o.ds[var].data
+        marr = arrays[i]
+        start = int(starts[i])
         grid = tuple(-(-n // c) for n, c in zip(marr.shape, ref_chunks, strict=True))
         placeholder = ManifestArray(
             metadata=replace(ref.metadata, shape=tuple(marr.shape)),
@@ -679,7 +679,6 @@ def _placeholder_tails(
             f"where the series is chunked {ref_chunks}; its {n} step(s) from index {start} "
             f"are stored natively, re-chunked"
         )
-        start += n
     return tails, notes
 
 

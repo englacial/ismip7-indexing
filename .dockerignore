@@ -5,3 +5,4 @@
 !LICENSE
 !ismip7_helper/
 ismip7_helper/**/__pycache__
+!requirements-lambda.txt

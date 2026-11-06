@@ -112,15 +112,19 @@ aws secretsmanager put-secret-value --region us-west-2 --secret-id ismip7/sc_cre
 2. Build and push the image. Use `buildx` with `--platform linux/amd64` (Docker on
    Apple silicon otherwise builds arm64, and `create-function` defaults to
    x86_64) and `--provenance=false` (without it buildx pushes an OCI index with
-   attestations, which Lambda rejects). The build fails if `GIT_SHA` is not given:
+   attestations, which Lambda rejects). The build fails if `GIT_SHA` is not given.
+   It installs the dependencies first, from `requirements-lambda.txt` exported
+   from the lock file, so that 1 GB layer is cached and a code change only
+   re-pushes the small layers after it (`infra/deploy.sh` runs the export):
    ```bash
+   uv export --extra lambda --no-emit-project --no-hashes --no-dev -o requirements-lambda.txt
    docker buildx build --platform linux/amd64 --provenance=false \
        --build-arg GIT_SHA=$(git rev-parse HEAD) -f Dockerfile.lambda -t ismip7-virtualize --load .
    aws ecr get-login-password | docker login --username AWS --password-stdin <acct>.dkr.ecr.us-west-2.amazonaws.com
    docker tag ismip7-virtualize:latest <acct>.dkr.ecr.us-west-2.amazonaws.com/ismip7-virtualize:latest
    docker push <acct>.dkr.ecr.us-west-2.amazonaws.com/ismip7-virtualize:latest
    ```
-   The image installs the package with its `lambda` extra (pandas, boto3).
+   The package's `lambda` extra (pandas, boto3) is part of that export.
    pyarrow is not needed: the handler reads no Parquet. `.dockerignore` keeps
    everything but the package out of the build context.
 

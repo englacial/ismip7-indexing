@@ -710,3 +710,42 @@ def test_native_tail_round_trip(synthetic_root, local_target):
     with xr.open_dataset(paths[keys[0]]) as head:
         np.testing.assert_array_equal(stored.isel(time=slice(0, 12)).values, head["acabf"].values)
     assert verify_group(repo, result, n_files=3, seed=0).ok
+
+
+def test_native_chunks_for_a_file_in_the_middle_of_its_series(synthetic_root, local_target):
+    """A differently chunked file anywhere in the series (CanESM5's 1860-1860 ocean file) is stored natively."""
+    import xarray as xr
+
+    from ismip7_helper.virtualize import NativeTail
+
+    keys = _keys(years=(1850, 1851, 1852), variables=("acabf",))
+    urls, paths = {}, {}
+    for i, k in enumerate(keys):
+        p = synthetic_root / k
+        write_forcing_file(
+            p,
+            year=int(k[-7:-3]),
+            variable="acabf",
+            seed=i,
+            chunks=(1, 96, 96) if k.endswith("1851.nc") else None,
+        )
+        urls[k], paths[k] = f"file://{p}", p
+    result = concat_group([parse_key(k).forcing for k in keys], local_registry(), urls=urls)
+    assert result.native_tails == [NativeTail("acabf", 12, 12, urls[keys[1]], keys[1])]
+    assert result.ds["acabf"].data.metadata.chunks == (1, 191, 191)
+    manifest = result.ds["acabf"].data.manifest
+    assert (
+        "11.0.0" in manifest.dict()
+        and "12.0.0" not in manifest.dict()
+        and "24.0.0" in manifest.dict()
+    )
+
+    repo = open_repository(local_target, create=True)
+    wr = write_group(repo, result)
+    stored = open_group(repo, wr.group_path)["acabf"]
+    for i, k in enumerate(keys):
+        with xr.open_dataset(paths[k]) as src:
+            np.testing.assert_array_equal(
+                stored.isel(time=slice(12 * i, 12 * i + 12)).values, src["acabf"].values
+            )
+    assert verify_group(repo, result, n_files=3, seed=0).ok

@@ -30,12 +30,15 @@ at 0.059 s/file with 6 workers at 10 GB; the 1 km SDBN1 GrIS group with ten
 times the chunks per file (786,060 references) opened at 0.149 s/file and
 took 43 s to commit and verify, peaking at 1,060 MB.
 
-**Production setting: 2,048 MB and 8 workers** (the template defaults). The
-largest group (4,004 files, GrIS 1 km) is then about 6 to 8 minutes, inside
-the limit with margin, and the whole 218-group archive costs a couple of
-dollars. More workers at a larger size finish sooner (24 workers at 10 GB
-halve the wall time) for a few dollars more; keep workers × 75 MB well
-under the memory size.
+**Production setting: 10,240 MB and 24 workers** (the template defaults).
+The full-region run of 2026-11-06 at 2,048 MB and 8 workers verified 174
+of 218 groups, but the chunk-heaviest quarter of the archive did not fit:
+the AIS 2 km SDBN1 groups (up to 2.3 million references, 0.29 s/file even
+at 24 workers) and the GrIS 1 km and 4 km ssp runs ran out of memory at
+2,048 MB or of time; at 10 GB with 24 workers they peak at 3.3 GB and the
+3,718-file GrIS groups take under 10 minutes. The 3,146-file AIS 2 km
+SDBN1 ssp groups need 48 workers. The whole archive costs about four
+dollars per full run at 10 GB; the 2 GB setting saves about three.
 
 The fan-out estimates each group as `n_files × --seconds-per-file /
 --speedup` and does **not** invoke groups estimated over

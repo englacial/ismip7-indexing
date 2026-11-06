@@ -4,7 +4,8 @@
 #   AWS_PROFILE=astera infra/deploy.sh            # full deploy: stack, image, function update
 #   AWS_PROFILE=astera infra/deploy.sh --image    # rebuild and push the image, update the function only
 #
-# Requires: aws CLI signed in to the target account, docker with buildx, a clean git checkout.
+# Requires: aws CLI signed in to the target account, docker (with buildx) or podman, a clean git checkout.
+# Set CONTAINER_CLI=podman|docker to choose; defaults to docker if present, else podman.
 # The first run creates the ECR repository with a placeholder, pushes the real
 # image, then points the function at it; later runs only rebuild and push.
 set -euo pipefail
@@ -18,11 +19,20 @@ ECR="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com"
 SHA=$(git rev-parse HEAD)
 IMAGE="${ECR}/${FUNCTION}:${SHA}"
 
+CLI=${CONTAINER_CLI:-$(command -v docker >/dev/null 2>&1 && echo docker || echo podman)}
+
 build_and_push() {
-  aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ECR"
-  docker buildx build --platform linux/amd64 --provenance=false \
-      --build-arg GIT_SHA="$SHA" -f Dockerfile.lambda -t "$IMAGE" --load .
-  docker push "$IMAGE"
+  aws ecr get-login-password --region "$REGION" | "$CLI" login --username AWS --password-stdin "$ECR"
+  if [[ "$CLI" == podman ]]; then
+    # Lambda needs a Docker v2 single-image manifest: build in docker format (not OCI).
+    podman build --platform linux/amd64 --format docker \
+        --build-arg GIT_SHA="$SHA" -f Dockerfile.lambda -t "$IMAGE" .
+    podman push --format v2s2 "$IMAGE"
+  else
+    docker buildx build --platform linux/amd64 --provenance=false \
+        --build-arg GIT_SHA="$SHA" -f Dockerfile.lambda -t "$IMAGE" --load .
+    docker push "$IMAGE"
+  fi
 }
 
 if [[ "${1:-}" == "--image" ]]; then

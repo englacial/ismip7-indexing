@@ -176,7 +176,8 @@ def _local_containers(event: dict[str, Any]) -> dict[str, str]:
 
 
 def workers() -> int:
-    """Pool size: one process per vCPU (Lambda scales vCPUs with memory; 10 GB = 6)."""
+    """Pool size: ``ISMIP7_WORKERS`` (the stack's ``Workers`` parameter, 8), else one
+    per vCPU. Opening files is S3-latency bound, so more workers than vCPUs pay off."""
     env = os.environ.get("ISMIP7_WORKERS")
     return int(env) if env else max(1, os.cpu_count() or 1)
 

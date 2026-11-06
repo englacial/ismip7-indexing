@@ -24,8 +24,18 @@ Parameters:
     Description: Secrets Manager secret holding the source.coop sc_creds.json content (set its value out of band).
   MemorySize:
     Type: Number
-    Default: 10240
-    Description: MB. 10240 gives 6 vCPUs; the handler runs one worker process per vCPU.
+    Default: 2048
+    Description: >-
+      MB; Lambda scales vCPUs with it (1769 MB = 1 vCPU, 10240 = 6). Opening the files is
+      bound by S3 latency, not CPU (measured 2026-11-05: 6 workers use ~0.75 vCPU), so
+      2048 MB with 8 workers runs a 1,980-file group in ~3 min for a quarter of the
+      10 GB price; 10240 MB with 24 workers is ~2x faster at ~3x the price.
+  Workers:
+    Type: Number
+    Default: 8
+    Description: >-
+      Worker processes opening files per invocation (ISMIP7_WORKERS). Each needs ~75 MB
+      and spends ~90% of its time waiting on S3; keep workers x 75 MB well under MemorySize.
   Timeout:
     Type: Number
     Default: 900
@@ -97,6 +107,7 @@ Resources:
         Variables:
           ISMIP7_WRITE_CREDS_SECRET: !Ref SecretName
           ISMIP7_LOG_LEVEL: INFO
+          ISMIP7_WORKERS: !Ref Workers
 
   LogGroup:
     Type: AWS::Logs::LogGroup

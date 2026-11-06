@@ -6,46 +6,48 @@ or CloudShell (see Running) and collects the results. No Lithops: plain `boto3`.
 
 ## Sizing
 
-One invocation has at most 900 s. Opening the files (HDF5 header parsing,
-CPU-bound) dominates; the handler runs one worker process per vCPU (6 at
-10,240 MB). Measured locally, six processes give about **3.9x** over one,
-not 6x. Estimated open time per group = files × seconds per file / 3.9:
+One invocation has at most 900 s. Opening the files (one ranged read of each
+HDF5 header, then parsing it) dominates, and **it is bound by S3 latency, not
+CPU**: measured on Lambda (2026-11-05, in us-west-2 next to the source
+bucket), six worker processes were busy 13% of the time, and 24 were busy 7%
+of the time for the same total CPU. The handler runs `ISMIP7_WORKERS`
+processes (template parameter `Workers`), independent of the vCPU count.
+Each worker holds about 75 MB.
 
-| Product class | Files per group | Time per file (1 vCPU, local) | Estimated open time | Where it runs |
-|---|---|---|---|---|
-| 8 km / 4 km SMB (11 variables), hist | 1,815 | ~1.2 s | ~560 s | Lambda |
-| 8 km / 4 km SMB, ssp | 3,146 | ~1.2 s | ~970 s | deferred to a big machine |
-| 2 km / 1 km SMB, hist | 1,815 | ~1.5 s (to measure) | ~700 s | borderline |
-| 2 km / 1 km SMB, ssp | 3,146 | ~1.5 s (to measure) | ~1,210 s | deferred to a big machine |
-| AIS ocean (3 variables, decadal) | 51 / 87 | ~20 s | ~260 / ~450 s | Lambda |
+Measured on a 1,980-file GrIS 1 km group (`CanESM5/historical/dEBM2-1000m`
+and siblings), `--verify 1` unless noted:
 
-Concatenation, the commit and verification come on top, so the fan-out
-keeps a margin. It estimates each group as `n_files × --seconds-per-file /
---speedup` (defaults 1.3 and 3.9) and does **not** invoke groups estimated over
-`--max-lambda-seconds` (default 700). Those groups are recorded as
-`status: "deferred"` in the report and listed in `--big-groups` (default
-`big-groups-<region>-<UTC time>.txt`), and the fan-out prints the command
-that runs them on a big machine with the serial runner and a process pool:
+| Memory | vCPUs | Workers | Open | s/file | Commit + verify | Total | Peak memory | GB-s | Cost/group |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2,048 MB | 2 | 6 | 181 s | 0.091 | 13 s (no verify) | 197 s | 792 MB | 393 | $0.007 |
+| 4,096 MB | 3 | 6 | 160 s | 0.081 | 14 s (no verify) | 177 s | 800 MB | 707 | $0.012 |
+| 10,240 MB | 6 | 6 | 140 s | 0.071 | 13 s (no verify) | 154 s | 814 MB | 1,542 | $0.026 |
+| 10,240 MB | 6 | 6 | 198 s | 0.100 | 27 s | 225 s | 807 MB | 2,250 | $0.037 |
+| 10,240 MB | 6 | 24 | 81 s | 0.041 | 25 s | 106 s | 1,829 MB | 1,067 | $0.018 |
 
-```bash
-ismip7-virtualize --index index.parquet --region AIS --target s3://... --write-creds sc_creds.json \
-    --verify 1 --workers $(nproc) --groups <the deferred group paths>
-```
+The AIS 8 km group `CESM2-WACCM/historical/SDBN1-8000m` (1,815 files) opened
+at 0.059 s/file with 6 workers at 10 GB; the 1 km SDBN1 GrIS group with ten
+times the chunks per file (786,060 references) opened at 0.149 s/file and
+took 43 s to commit and verify, peaking at 1,060 MB.
 
-On a 32-vCPU EC2 instance (e.g. `c7i.8xlarge`, at the same ~65% process
-efficiency) a 3,146-file group takes about 3,146 × 1.3 s / 21 ≈ 200 s.
+**Production setting: 2,048 MB and 8 workers** (the template defaults). The
+largest group (4,004 files, GrIS 1 km) is then about 6 to 8 minutes, inside
+the limit with margin, and the whole 218-group archive costs a couple of
+dollars. More workers at a larger size finish sooner (24 workers at 10 GB
+halve the wall time) for a few dollars more; keep workers × 75 MB well
+under the memory size.
 
-The estimate uses one per-file figure for every group. The ocean files take
-~20 s each, so their estimate at the default 1.3 s is far too low, but those
-groups are small enough to fit anyway.
-
-**The per-file seconds are local measurements. They must be measured on
-Lambda in the first run.** Each `GroupRun` in the report records `n_files`,
-`timings.open`, `cpu_count` and `n_workers`. From the first group,
-`timings.open / n_files` is the effective seconds per file at the Lambda's
-parallelism: pass that as `--seconds-per-file` with `--speedup 1`, or
-`timings.open × 3.9 / n_files` with the default speedup. Re-plan with the
-measured figure (`--dry-run`) before the bulk run.
+The fan-out estimates each group as `n_files × --seconds-per-file /
+--speedup` and does **not** invoke groups estimated over
+`--max-lambda-seconds` (default 700); such groups are recorded as `status:
+"deferred"` and listed in `--big-groups`, with the serial-runner command to
+run them on a big machine. With the measured in-region rates nothing is
+deferred: pass `--seconds-per-file 0.1 --speedup 1` (a conservative wall
+rate per file at 8 workers) and the largest group estimates at ~400 s.
+Re-plan with `--dry-run` before a bulk run. Each `GroupRun` in the report
+records `n_files`, `timings` (`open`, `open_cpu`, `open_worker_cpu`,
+`open_utilization`, `commit`, `commit_cpu`), `cpu_count` and `n_workers`,
+so every run re-measures this.
 
 As a backstop, the handler reads the Lambda context. If fewer than 90 s
 remain after opening the files, it returns `status: failed, error:
@@ -125,8 +127,8 @@ what the stack does, for reference.
    aws lambda create-function --function-name ismip7-virtualize \
      --package-type Image --code ImageUri=<acct>.dkr.ecr.us-west-2.amazonaws.com/ismip7-virtualize:latest \
      --role arn:aws:iam::<acct>:role/ismip7-virtualize \
-     --memory-size 10240 --timeout 900 --ephemeral-storage Size=2048 \
-     --environment Variables={ISMIP7_WRITE_CREDS_SECRET=ismip7/sc_creds}
+     --memory-size 2048 --timeout 900 --ephemeral-storage Size=2048 \
+     --environment Variables={ISMIP7_WRITE_CREDS_SECRET=ismip7/sc_creds,ISMIP7_WORKERS=8}
    aws lambda put-function-concurrency --function-name ismip7-virtualize --reserved-concurrent-executions 250
    ```
 
@@ -218,10 +220,11 @@ selected. Release snapshots are tagged by hand with `store.tag_release(repo, nam
 ## Cost
 
 Header reads only: a few GB of egress for the whole archive. Lambda at
-10 GB for ~1,500 groups averaging 5 minutes is about 1,500 × 300 s × 10 GB ×
-$0.0000166667/GB-s ≈ $75. The deferred ssp SMB groups run on one EC2
-instance for a few hours instead (a few dollars). S3 PUTs for ~60k
-manifest/snapshot objects cost a few dollars. Well inside the SOW's compute
+2,048 MB and 8 workers is about 400 GB-s per 2,000-file group (about
+$0.007); the 218 groups, most of them smaller, come to a couple of dollars
+per full run, and at 10 GB with 24 workers about four. The writes through
+the data.source.coop proxy (a few hundred manifest and snapshot objects per
+group) are free of charge on source.coop. Well inside the SOW's compute
 line.
 
 ## Local equivalent

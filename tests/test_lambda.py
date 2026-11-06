@@ -693,8 +693,9 @@ def test_run_event_reports_cpu_utilization(synthetic_root, tmp_path, monkeypatch
     monkeypatch.setenv("ISMIP7_WORKERS", "2")
     keys, urls = _make_group(synthetic_root)
     ev = _event(synthetic_root, tmp_path, keys, urls, verify=0)
+    _prepare(ev)
     out = run_event(ev)
-    assert out["status"] == "written"
+    assert out["status"] == "written", out["error"]
     t = out["timings"]
     assert t["open_cpu"] >= 0 and 0 <= t["open_utilization"] <= 1.5  # >1 only if children exceed n
     assert "commit_cpu" in t and t["commit_cpu"] >= 0

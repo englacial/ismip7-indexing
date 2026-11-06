@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import numpy as np
 import pytest
 import xarray as xr
@@ -367,14 +369,34 @@ def test_concat_group_rejects_time_mismatch(synthetic_root, local_registry):
         _group(synthetic_root, local_registry, [(k, {}) for k in keys])
 
 
-def test_concat_group_rejects_time_offset_between_variables(synthetic_root, local_registry):
+def _shifted_months(days: float) -> np.ndarray:
     import cftime
 
-    dates = [cftime.datetime(1850, m, 15, 12) for m in range(1, 13)]
-    shifted = np.asarray(cftime.date2num(dates, "days since 1850-01-01", "standard"))
-    specs = [(_key(var="acabf"), {}), (_key(var="tas"), {"time_values": shifted})]
+    dates = [cftime.datetime(1850, m, 15) + timedelta(days=days) for m in range(1, 13)]
+    return np.asarray(cftime.date2num(dates, "days since 1850-01-01", "standard"), dtype="f8")
+
+
+def test_concat_group_aligns_small_time_offset_between_variables(synthetic_root, local_registry):
+    """GrIS sgd files stamp 16 Jan / 14 Feb (noleap) where their siblings stamp the 15th:
+    the same monthly axis with a skewed encoding, aligned to the majority and recorded."""
+    specs = [
+        (_key(var="acabf"), {}),
+        (_key(var="tas"), {}),
+        (_key(var="sgd"), {"time_values": _shifted_months(1.0)}),
+    ]
+    g = _group(synthetic_root, local_registry, specs)
+    ds = g.ds
+    assert ds.sizes["time"] == 12 and "ismip7_time_axes" not in ds.attrs
+    np.testing.assert_array_equal(ds["time"].values, _shifted_months(0.0))
+    note = "sgd: time stamps up to 1 days from those of acabf; aligned to the acabf axis"
+    assert ds.attrs["ismip7_time_axis_notes"] == [note]
+    assert note in g.notes
+
+
+def test_concat_group_rejects_time_offset_between_variables(synthetic_root, local_registry):
+    specs = [(_key(var="acabf"), {}), (_key(var="tas"), {"time_values": _shifted_months(3.0)})]
     with pytest.raises(
-        VirtualizeError, match=r"time axis of tas differs from acabf \(up to 0\.5 days apart\)"
+        VirtualizeError, match=r"time axis of tas differs from acabf \(up to 3 days apart\)"
     ):
         _group(synthetic_root, local_registry, specs)
 

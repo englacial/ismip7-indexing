@@ -660,11 +660,17 @@ def concat_group(
         # SMB fields and the *annual* gradient fields (dacabfdz, dtsdz, dmrrodz)
         # share a group. Each distinct axis becomes its own dimension: the
         # monthly one keeps ``time``, an annual one is ``time_annual``, anything
-        # else ``time_<steps per year>``. Variables on the same axis must match
-        # exactly (a 12-hour offset is a defect, not a second axis).
+        # else ``time_<steps per year>``. Axes of the same length whose stamps
+        # are within TIME_AXIS_TOLERANCE_DAYS of each other are one axis with
+        # a skewed encoding (GrIS ``sgd`` files stamp 16 Jan / 14 Feb in a
+        # noleap calendar where their siblings stamp the 15th): the variables
+        # on the smaller side take the stamps of the larger, and the shift is
+        # recorded. Larger same-frequency mismatches are defects.
         groups_by_axis: dict[tuple, list[str]] = {}
         for var in with_time:
             groups_by_axis.setdefault(tuple(per_var[var]["time"].values.tolist()), []).append(var)
+        axis_notes = _align_time_axes(groups_by_axis, per_var)
+        notes.extend(axis_notes)
         names: dict[tuple, str] = {}
         for key in sorted(groups_by_axis, key=len, reverse=True):
             n_years = len(set(time_years(np.asarray(key))))
@@ -731,6 +737,8 @@ def concat_group(
                 merged[axis].attrs.pop(name, None)
         if len(axes) > 1:
             merged.attrs["ismip7_time_axes"] = [f"{a}: {', '.join(v)}" for a, v in axes.items()]
+        if axis_notes:
+            merged.attrs["ismip7_time_axis_notes"] = axis_notes
     return GroupResult(
         group_path=group_path,
         ds=merged,
@@ -739,6 +747,49 @@ def concat_group(
         sources=sorted(((f.key, f.size) for f in files), key=lambda p: p[0]),
         opened_at=opened_at,
     )
+
+
+#: Monthly stamps this close (days) are the same axis with a skewed encoding.
+TIME_AXIS_TOLERANCE_DAYS = 2.0
+
+
+def _align_time_axes(
+    groups_by_axis: dict[tuple, list[str]], per_var: dict[str, xr.Dataset]
+) -> list[str]:
+    """Merge same-length axes within :data:`TIME_AXIS_TOLERANCE_DAYS` of each other.
+
+    The axis carrying the most variables (then the first by variable name) is
+    the reference; the others' variables are re-stamped with its values and
+    moved onto it in ``groups_by_axis``. Returns one note per moved variable.
+    """
+    notes: list[str] = []
+    ordered = sorted(groups_by_axis, key=lambda k: (-len(groups_by_axis[k]), groups_by_axis[k][0]))
+    refs: list[tuple] = []
+    for key in ordered:
+        t = np.asarray(key)
+        ref = next(
+            (
+                r
+                for r in refs
+                if len(r) == len(key)
+                and np.max(np.abs(t - np.asarray(r))) <= TIME_AXIS_TOLERANCE_DAYS
+            ),
+            None,
+        )
+        if ref is None:
+            refs.append(key)
+            continue
+        shift = float(np.max(np.abs(t - np.asarray(ref))))
+        anchor = groups_by_axis[ref][0]
+        for var in groups_by_axis.pop(key):
+            ds = per_var[var]
+            per_var[var] = ds.assign_coords(time=("time", np.asarray(ref), dict(ds["time"].attrs)))
+            groups_by_axis[ref].append(var)
+            notes.append(
+                f"{var}: time stamps up to {shift:g} days from those of {anchor}; "
+                f"aligned to the {anchor} axis"
+            )
+    return notes
 
 
 def _is_local_url(url: str | None) -> bool:

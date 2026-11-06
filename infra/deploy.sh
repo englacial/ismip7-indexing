@@ -14,6 +14,8 @@ cd "$(dirname "$0")/.."
 STACK=${STACK:-ismip7-virtualize}
 FUNCTION=${FUNCTION:-ismip7-virtualize}
 REGION=${AWS_REGION:-us-west-2}
+# A pre-created execution role (infra/execution-role.json); empty = the stack creates one.
+ROLE_ARN=${EXECUTION_ROLE_ARN:-}
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 ECR="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com"
 SHA=$(git rev-parse HEAD)
@@ -49,7 +51,7 @@ if ! aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK"
   echo "creating stack $STACK (repository, role, secret, log group; no function yet)"
   aws cloudformation deploy --region "$REGION" --stack-name "$STACK" \
       --template-file infra/lambda-stack.yaml --capabilities CAPABILITY_NAMED_IAM \
-      --parameter-overrides FunctionName="$FUNCTION" ImageUri="" \
+      --parameter-overrides FunctionName="$FUNCTION" ImageUri="" ExecutionRoleArn="$ROLE_ARN" \
       --no-fail-on-empty-changeset
 fi
 
@@ -59,7 +61,7 @@ build_and_push
 # 3. Create (or update) the function with the real image.
 aws cloudformation deploy --region "$REGION" --stack-name "$STACK" \
     --template-file infra/lambda-stack.yaml --capabilities CAPABILITY_NAMED_IAM \
-    --parameter-overrides FunctionName="$FUNCTION" ImageUri="$IMAGE" \
+    --parameter-overrides FunctionName="$FUNCTION" ImageUri="$IMAGE" ExecutionRoleArn="$ROLE_ARN" \
     --no-fail-on-empty-changeset
 
 aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" \

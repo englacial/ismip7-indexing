@@ -74,8 +74,12 @@ the credentials secret: it reads nothing else), deploy with
 `iam:PassRole` on that role. Everything else is the same:
 
 ```bash
-aws cloudformation deploy ... --parameter-overrides ... ExecutionRoleArn=arn:aws:iam::429435741471:role/ismip7-virtualize-execution
+EXECUTION_ROLE_ARN=arn:aws:iam::429435741471:role/ismip7-virtualize-execution infra/deploy.sh
 ```
+
+Either way the person with the deployer policy runs `infra/deploy.sh`; the
+administrator's part is attaching that policy (path 1), or creating the
+role and attaching the smaller policy (path 2).
 
 1. ECR repository: `aws ecr create-repository --repository-name ismip7-virtualize`.
 2. Build and push the image. Use `buildx` with `--platform linux/amd64` (Docker on

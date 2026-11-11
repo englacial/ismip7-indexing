@@ -28,6 +28,9 @@ concurrency:
 env:
   GRIDLOOK_REPO: espg/gridlook
   GRIDLOOK_REF: 0e7c178d1b2387f5b69edcac8aeaa0e1c94e16e2 # upstream/levels-lod, 2026-11-10
+  # Opened when the page is loaded without a hash (gridlook would otherwise
+  # open its own CMIP6 example): the dataset, then "::name=value" parameters.
+  DEFAULT_DATASET: icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/historical/SDBN1-8000m::varname=acabf
 
 jobs:
   build:
@@ -52,6 +55,19 @@ jobs:
       - name: Build
         working-directory: viewer
         run: npm run build
+      - name: Default dataset
+        # An inline script in <head> runs before the app's module script, so
+        # the hash is set by the time the view reads it.
+        run: |
+          python3 - <<'PY'
+          import os, pathlib
+          p = pathlib.Path("viewer/dist/index.html")
+          html = p.read_text()
+          tag = ('<script>if(location.hash.length<2){history.replaceState(null,"",'
+                 'location.pathname+location.search+"#"+' + repr(os.environ["DEFAULT_DATASET"]) + ')}</script>')
+          assert html.count("<head>") == 1
+          p.write_text(html.replace("<head>", "<head>" + tag, 1))
+          PY
       - uses: actions/upload-pages-artifact@v3
         with:
           path: viewer/dist

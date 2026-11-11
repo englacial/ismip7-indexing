@@ -4,7 +4,7 @@
   "datasets": [
     {
       "title": "ACCESS-CM2 historical dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/ACCESS-CM2/historical/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/ACCESS-CM2/historical/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "ACCESS-CM2",
@@ -20,25 +20,8 @@
       }
     },
     {
-      "title": "ACCESS-CM2 historical dEBM2 8 km (climatology)",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/ACCESS-CM2/historical/dEBM2-8000m",
-      "tags": {
-        "region": "AIS",
-        "source": "ACCESS-CM2",
-        "experiment": "historical",
-        "product": "dEBM2",
-        "resolution": "8 km",
-        "kind": "climatology"
-      },
-      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
-      "params": {
-        "varname": "acabf",
-        "colormap": "viridis"
-      }
-    },
-    {
       "title": "ACCESS-CM2 historical ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/ACCESS-CM2/historical/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/ACCESS-CM2/historical/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "ACCESS-CM2",
@@ -54,8 +37,25 @@
       }
     },
     {
+      "title": "ACCESS-CM2 historical dEBM2 8 km (climatology)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/ACCESS-CM2/historical/dEBM2/8000m",
+      "tags": {
+        "region": "AIS",
+        "source": "ACCESS-CM2",
+        "experiment": "historical",
+        "product": "dEBM2",
+        "resolution": "8 km",
+        "kind": "climatology"
+      },
+      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "ACCESS-CM2 ssp370 dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/ACCESS-CM2/ssp370/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/ACCESS-CM2/ssp370/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "ACCESS-CM2",
@@ -72,7 +72,7 @@
     },
     {
       "title": "ACCESS-CM2 ssp370 ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/ACCESS-CM2/ssp370/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/ACCESS-CM2/ssp370/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "ACCESS-CM2",
@@ -88,8 +88,26 @@
       }
     },
     {
+      "title": "CESM2-WACCM ctrl SDBN1 (2 km + 8 km)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ctrl/SDBN1",
+      "tags": {
+        "region": "AIS",
+        "source": "CESM2-WACCM",
+        "experiment": "ctrl",
+        "product": "SDBN1",
+        "resolution": "2 km + 8 km",
+        "kind": "annual",
+        "levels": "2"
+      },
+      "description": "All 2 resolutions of this product as one multi-resolution dataset (2 km, 8 km); the viewer picks the level from the zoom. Variables: acabf, acabf-anomaly, dacabfdz, dmrrodz, dtsdz, mrro, mrro-anomaly, pr, pr-anomaly, tas, tas-anomaly, ts, ts-anomaly; years 2015-2300; 3718 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "CESM2-WACCM ctrl SDBN1 2 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ctrl/SDBN1-2000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ctrl/SDBN1/2000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -106,7 +124,7 @@
     },
     {
       "title": "CESM2-WACCM ctrl SDBN1 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ctrl/SDBN1-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ctrl/SDBN1/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -123,7 +141,7 @@
     },
     {
       "title": "CESM2-WACCM ctrl ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ctrl/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ctrl/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -139,8 +157,26 @@
       }
     },
     {
+      "title": "CESM2-WACCM historical SDBN1 (2 km + 8 km)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/historical/SDBN1",
+      "tags": {
+        "region": "AIS",
+        "source": "CESM2-WACCM",
+        "experiment": "historical",
+        "product": "SDBN1",
+        "resolution": "2 km + 8 km",
+        "kind": "annual",
+        "levels": "2"
+      },
+      "description": "All 2 resolutions of this product as one multi-resolution dataset (2 km, 8 km); the viewer picks the level from the zoom. Variables: acabf, acabf-anomaly, dacabfdz, dmrrodz, dtsdz, mrro, pr, tas, tas-anomaly, ts, ts-anomaly; years 1850-2014; 1815 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "CESM2-WACCM historical SDBN1 2 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/historical/SDBN1-2000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/historical/SDBN1/2000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -150,23 +186,6 @@
         "kind": "annual"
       },
       "description": "Variables: acabf, acabf-anomaly, dacabfdz, dmrrodz, dtsdz, mrro, pr, tas, tas-anomaly, ts, ts-anomaly; years 1850-2014; 1815 files.",
-      "params": {
-        "varname": "acabf",
-        "colormap": "viridis"
-      }
-    },
-    {
-      "title": "CESM2-WACCM historical SDBN1 2 km (climatology)",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/CESM2-WACCM/historical/SDBN1-2000m",
-      "tags": {
-        "region": "AIS",
-        "source": "CESM2-WACCM",
-        "experiment": "historical",
-        "product": "SDBN1",
-        "resolution": "2 km",
-        "kind": "climatology"
-      },
-      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
       "params": {
         "varname": "acabf",
         "colormap": "viridis"
@@ -174,7 +193,7 @@
     },
     {
       "title": "CESM2-WACCM historical SDBN1 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/historical/SDBN1-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/historical/SDBN1/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -190,25 +209,8 @@
       }
     },
     {
-      "title": "CESM2-WACCM historical SDBN1 8 km (climatology)",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/CESM2-WACCM/historical/SDBN1-8000m",
-      "tags": {
-        "region": "AIS",
-        "source": "CESM2-WACCM",
-        "experiment": "historical",
-        "product": "SDBN1",
-        "resolution": "8 km",
-        "kind": "climatology"
-      },
-      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
-      "params": {
-        "varname": "acabf",
-        "colormap": "viridis"
-      }
-    },
-    {
       "title": "CESM2-WACCM historical dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/historical/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/historical/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -224,25 +226,8 @@
       }
     },
     {
-      "title": "CESM2-WACCM historical ocean 8 km (climatology)",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/CESM2-WACCM/historical/ocean",
-      "tags": {
-        "region": "AIS",
-        "source": "CESM2-WACCM",
-        "experiment": "historical",
-        "product": "ocean",
-        "resolution": "8 km",
-        "kind": "climatology"
-      },
-      "description": "Variables: ct, sa; years 1995-2024; 2 files.",
-      "params": {
-        "varname": "ct",
-        "colormap": "viridis"
-      }
-    },
-    {
       "title": "CESM2-WACCM historical ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/historical/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/historical/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -258,8 +243,95 @@
       }
     },
     {
+      "title": "CESM2-WACCM historical SDBN1 (climatology) (2 km + 8 km)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/CESM2-WACCM/historical/SDBN1",
+      "tags": {
+        "region": "AIS",
+        "source": "CESM2-WACCM",
+        "experiment": "historical",
+        "product": "SDBN1",
+        "resolution": "2 km + 8 km",
+        "kind": "climatology",
+        "levels": "2"
+      },
+      "description": "All 2 resolutions of this product as one multi-resolution dataset (2 km, 8 km); the viewer picks the level from the zoom. Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "title": "CESM2-WACCM historical SDBN1 2 km (climatology)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/CESM2-WACCM/historical/SDBN1/2000m",
+      "tags": {
+        "region": "AIS",
+        "source": "CESM2-WACCM",
+        "experiment": "historical",
+        "product": "SDBN1",
+        "resolution": "2 km",
+        "kind": "climatology"
+      },
+      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "title": "CESM2-WACCM historical SDBN1 8 km (climatology)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/CESM2-WACCM/historical/SDBN1/8000m",
+      "tags": {
+        "region": "AIS",
+        "source": "CESM2-WACCM",
+        "experiment": "historical",
+        "product": "SDBN1",
+        "resolution": "8 km",
+        "kind": "climatology"
+      },
+      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "title": "CESM2-WACCM historical ocean 8 km (climatology)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/CESM2-WACCM/historical/ocean/8000m",
+      "tags": {
+        "region": "AIS",
+        "source": "CESM2-WACCM",
+        "experiment": "historical",
+        "product": "ocean",
+        "resolution": "8 km",
+        "kind": "climatology"
+      },
+      "description": "Variables: ct, sa; years 1995-2024; 2 files.",
+      "params": {
+        "varname": "ct",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "title": "CESM2-WACCM ssp126 SDBN1 (2 km + 8 km)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp126/SDBN1",
+      "tags": {
+        "region": "AIS",
+        "source": "CESM2-WACCM",
+        "experiment": "ssp126",
+        "product": "SDBN1",
+        "resolution": "2 km + 8 km",
+        "kind": "annual",
+        "levels": "2"
+      },
+      "description": "All 2 resolutions of this product as one multi-resolution dataset (2 km, 8 km); the viewer picks the level from the zoom. Variables: acabf, acabf-anomaly, dacabfdz, dmrrodz, dtsdz, mrro, pr, tas, tas-anomaly, ts, ts-anomaly; years 2015-2300; 3146 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "CESM2-WACCM ssp126 SDBN1 2 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp126/SDBN1-2000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp126/SDBN1/2000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -276,7 +348,7 @@
     },
     {
       "title": "CESM2-WACCM ssp126 SDBN1 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp126/SDBN1-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp126/SDBN1/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -293,7 +365,7 @@
     },
     {
       "title": "CESM2-WACCM ssp126 dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp126/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp126/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -310,7 +382,7 @@
     },
     {
       "title": "CESM2-WACCM ssp126 ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp126/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp126/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -327,7 +399,7 @@
     },
     {
       "title": "CESM2-WACCM ssp245 dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp245/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp245/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -343,8 +415,26 @@
       }
     },
     {
+      "title": "CESM2-WACCM ssp370 SDBN1 (2 km + 8 km)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp370/SDBN1",
+      "tags": {
+        "region": "AIS",
+        "source": "CESM2-WACCM",
+        "experiment": "ssp370",
+        "product": "SDBN1",
+        "resolution": "2 km + 8 km",
+        "kind": "annual",
+        "levels": "2"
+      },
+      "description": "All 2 resolutions of this product as one multi-resolution dataset (2 km, 8 km); the viewer picks the level from the zoom. Variables: acabf, acabf-anomaly, dacabfdz, dmrrodz, dtsdz, mrro, pr, tas, tas-anomaly, ts, ts-anomaly; years 2015-2100; 946 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "CESM2-WACCM ssp370 SDBN1 2 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp370/SDBN1-2000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp370/SDBN1/2000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -361,7 +451,7 @@
     },
     {
       "title": "CESM2-WACCM ssp370 SDBN1 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp370/SDBN1-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp370/SDBN1/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -378,7 +468,7 @@
     },
     {
       "title": "CESM2-WACCM ssp370 dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp370/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp370/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -395,7 +485,7 @@
     },
     {
       "title": "CESM2-WACCM ssp370 ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp370/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp370/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -411,8 +501,26 @@
       }
     },
     {
+      "title": "CESM2-WACCM ssp534-over SDBN1 (2 km + 8 km)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp534-over/SDBN1",
+      "tags": {
+        "region": "AIS",
+        "source": "CESM2-WACCM",
+        "experiment": "ssp534-over",
+        "product": "SDBN1",
+        "resolution": "2 km + 8 km",
+        "kind": "annual",
+        "levels": "2"
+      },
+      "description": "All 2 resolutions of this product as one multi-resolution dataset (2 km, 8 km); the viewer picks the level from the zoom. Variables: acabf, acabf-anomaly, dacabfdz, dmrrodz, dtsdz, mrro, pr, tas, tas-anomaly, ts, ts-anomaly; years 2015-2300; 3146 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "CESM2-WACCM ssp534-over SDBN1 2 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp534-over/SDBN1-2000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp534-over/SDBN1/2000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -429,7 +537,7 @@
     },
     {
       "title": "CESM2-WACCM ssp534-over SDBN1 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp534-over/SDBN1-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp534-over/SDBN1/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -446,7 +554,7 @@
     },
     {
       "title": "CESM2-WACCM ssp534-over dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp534-over/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp534-over/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -463,7 +571,7 @@
     },
     {
       "title": "CESM2-WACCM ssp534-over ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp534-over/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp534-over/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -479,8 +587,26 @@
       }
     },
     {
+      "title": "CESM2-WACCM ssp585 SDBN1 (2 km + 8 km)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp585/SDBN1",
+      "tags": {
+        "region": "AIS",
+        "source": "CESM2-WACCM",
+        "experiment": "ssp585",
+        "product": "SDBN1",
+        "resolution": "2 km + 8 km",
+        "kind": "annual",
+        "levels": "2"
+      },
+      "description": "All 2 resolutions of this product as one multi-resolution dataset (2 km, 8 km); the viewer picks the level from the zoom. Variables: acabf, acabf-anomaly, dacabfdz, dmrrodz, dtsdz, mrro, pr, tas, tas-anomaly, ts, ts-anomaly; years 2015-2300; 3146 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "CESM2-WACCM ssp585 SDBN1 2 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp585/SDBN1-2000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp585/SDBN1/2000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -497,7 +623,7 @@
     },
     {
       "title": "CESM2-WACCM ssp585 SDBN1 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp585/SDBN1-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp585/SDBN1/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -514,7 +640,7 @@
     },
     {
       "title": "CESM2-WACCM ssp585 dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp585/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp585/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -531,7 +657,7 @@
     },
     {
       "title": "CESM2-WACCM ssp585 ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp585/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/ssp585/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "CESM2-WACCM",
@@ -548,7 +674,7 @@
     },
     {
       "title": "CanESM5 historical dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CanESM5/historical/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CanESM5/historical/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "CanESM5",
@@ -564,25 +690,8 @@
       }
     },
     {
-      "title": "CanESM5 historical dEBM2 8 km (climatology)",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/CanESM5/historical/dEBM2-8000m",
-      "tags": {
-        "region": "AIS",
-        "source": "CanESM5",
-        "experiment": "historical",
-        "product": "dEBM2",
-        "resolution": "8 km",
-        "kind": "climatology"
-      },
-      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
-      "params": {
-        "varname": "acabf",
-        "colormap": "viridis"
-      }
-    },
-    {
       "title": "CanESM5 historical ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CanESM5/historical/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CanESM5/historical/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "CanESM5",
@@ -598,8 +707,25 @@
       }
     },
     {
+      "title": "CanESM5 historical dEBM2 8 km (climatology)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/CanESM5/historical/dEBM2/8000m",
+      "tags": {
+        "region": "AIS",
+        "source": "CanESM5",
+        "experiment": "historical",
+        "product": "dEBM2",
+        "resolution": "8 km",
+        "kind": "climatology"
+      },
+      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "CanESM5 ssp370 dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CanESM5/ssp370/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CanESM5/ssp370/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "CanESM5",
@@ -616,7 +742,7 @@
     },
     {
       "title": "CanESM5 ssp370 ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CanESM5/ssp370/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CanESM5/ssp370/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "CanESM5",
@@ -633,7 +759,7 @@
     },
     {
       "title": "GFDL-ESM4 historical dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/GFDL-ESM4/historical/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/GFDL-ESM4/historical/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "GFDL-ESM4",
@@ -649,25 +775,8 @@
       }
     },
     {
-      "title": "GFDL-ESM4 historical dEBM2 8 km (climatology)",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/GFDL-ESM4/historical/dEBM2-8000m",
-      "tags": {
-        "region": "AIS",
-        "source": "GFDL-ESM4",
-        "experiment": "historical",
-        "product": "dEBM2",
-        "resolution": "8 km",
-        "kind": "climatology"
-      },
-      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
-      "params": {
-        "varname": "acabf",
-        "colormap": "viridis"
-      }
-    },
-    {
       "title": "GFDL-ESM4 historical ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/GFDL-ESM4/historical/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/GFDL-ESM4/historical/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "GFDL-ESM4",
@@ -683,8 +792,25 @@
       }
     },
     {
+      "title": "GFDL-ESM4 historical dEBM2 8 km (climatology)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/GFDL-ESM4/historical/dEBM2/8000m",
+      "tags": {
+        "region": "AIS",
+        "source": "GFDL-ESM4",
+        "experiment": "historical",
+        "product": "dEBM2",
+        "resolution": "8 km",
+        "kind": "climatology"
+      },
+      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "GFDL-ESM4 ssp370 dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/GFDL-ESM4/ssp370/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/GFDL-ESM4/ssp370/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "GFDL-ESM4",
@@ -701,7 +827,7 @@
     },
     {
       "title": "GFDL-ESM4 ssp370 ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/GFDL-ESM4/ssp370/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/GFDL-ESM4/ssp370/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "GFDL-ESM4",
@@ -718,7 +844,7 @@
     },
     {
       "title": "IPSL-CM6A-LR historical dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/IPSL-CM6A-LR/historical/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/IPSL-CM6A-LR/historical/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "IPSL-CM6A-LR",
@@ -734,25 +860,8 @@
       }
     },
     {
-      "title": "IPSL-CM6A-LR historical dEBM2 8 km (climatology)",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/IPSL-CM6A-LR/historical/dEBM2-8000m",
-      "tags": {
-        "region": "AIS",
-        "source": "IPSL-CM6A-LR",
-        "experiment": "historical",
-        "product": "dEBM2",
-        "resolution": "8 km",
-        "kind": "climatology"
-      },
-      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
-      "params": {
-        "varname": "acabf",
-        "colormap": "viridis"
-      }
-    },
-    {
       "title": "IPSL-CM6A-LR historical ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/IPSL-CM6A-LR/historical/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/IPSL-CM6A-LR/historical/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "IPSL-CM6A-LR",
@@ -768,8 +877,25 @@
       }
     },
     {
+      "title": "IPSL-CM6A-LR historical dEBM2 8 km (climatology)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/IPSL-CM6A-LR/historical/dEBM2/8000m",
+      "tags": {
+        "region": "AIS",
+        "source": "IPSL-CM6A-LR",
+        "experiment": "historical",
+        "product": "dEBM2",
+        "resolution": "8 km",
+        "kind": "climatology"
+      },
+      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "IPSL-CM6A-LR ssp370 dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/IPSL-CM6A-LR/ssp370/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/IPSL-CM6A-LR/ssp370/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "IPSL-CM6A-LR",
@@ -786,7 +912,7 @@
     },
     {
       "title": "IPSL-CM6A-LR ssp370 ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/IPSL-CM6A-LR/ssp370/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/IPSL-CM6A-LR/ssp370/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "IPSL-CM6A-LR",
@@ -803,7 +929,7 @@
     },
     {
       "title": "MPI-ESM1-2-HR historical dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MPI-ESM1-2-HR/historical/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MPI-ESM1-2-HR/historical/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "MPI-ESM1-2-HR",
@@ -819,25 +945,8 @@
       }
     },
     {
-      "title": "MPI-ESM1-2-HR historical dEBM2 8 km (climatology)",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/MPI-ESM1-2-HR/historical/dEBM2-8000m",
-      "tags": {
-        "region": "AIS",
-        "source": "MPI-ESM1-2-HR",
-        "experiment": "historical",
-        "product": "dEBM2",
-        "resolution": "8 km",
-        "kind": "climatology"
-      },
-      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
-      "params": {
-        "varname": "acabf",
-        "colormap": "viridis"
-      }
-    },
-    {
       "title": "MPI-ESM1-2-HR historical ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MPI-ESM1-2-HR/historical/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MPI-ESM1-2-HR/historical/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "MPI-ESM1-2-HR",
@@ -853,8 +962,25 @@
       }
     },
     {
+      "title": "MPI-ESM1-2-HR historical dEBM2 8 km (climatology)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/MPI-ESM1-2-HR/historical/dEBM2/8000m",
+      "tags": {
+        "region": "AIS",
+        "source": "MPI-ESM1-2-HR",
+        "experiment": "historical",
+        "product": "dEBM2",
+        "resolution": "8 km",
+        "kind": "climatology"
+      },
+      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "MPI-ESM1-2-HR ssp370 dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MPI-ESM1-2-HR/ssp370/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MPI-ESM1-2-HR/ssp370/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "MPI-ESM1-2-HR",
@@ -871,7 +997,7 @@
     },
     {
       "title": "MPI-ESM1-2-HR ssp370 ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MPI-ESM1-2-HR/ssp370/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MPI-ESM1-2-HR/ssp370/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "MPI-ESM1-2-HR",
@@ -887,8 +1013,26 @@
       }
     },
     {
+      "title": "MRI-ESM2-0 ctrl GEMB-SDBN1 (2 km + 8 km)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ctrl/GEMB-SDBN1",
+      "tags": {
+        "region": "AIS",
+        "source": "MRI-ESM2-0",
+        "experiment": "ctrl",
+        "product": "GEMB-SDBN1",
+        "resolution": "2 km + 8 km",
+        "kind": "annual",
+        "levels": "2"
+      },
+      "description": "All 2 resolutions of this product as one multi-resolution dataset (2 km, 8 km); the viewer picks the level from the zoom. Variables: acabf, acabf-anomaly, dacabfdz, dmrrodz, dtsdz, mrro, mrro-anomaly, pr, pr-anomaly, tas, tas-anomaly, ts, ts-anomaly; years 2015-2300; 3718 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "MRI-ESM2-0 ctrl GEMB-SDBN1 2 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ctrl/GEMB-SDBN1-2000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ctrl/GEMB-SDBN1/2000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -905,7 +1049,7 @@
     },
     {
       "title": "MRI-ESM2-0 ctrl GEMB-SDBN1 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ctrl/GEMB-SDBN1-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ctrl/GEMB-SDBN1/8000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -922,7 +1066,7 @@
     },
     {
       "title": "MRI-ESM2-0 ctrl ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ctrl/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ctrl/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -938,8 +1082,26 @@
       }
     },
     {
+      "title": "MRI-ESM2-0 historical GEMB-SDBN1 (2 km + 8 km)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/historical/GEMB-SDBN1",
+      "tags": {
+        "region": "AIS",
+        "source": "MRI-ESM2-0",
+        "experiment": "historical",
+        "product": "GEMB-SDBN1",
+        "resolution": "2 km + 8 km",
+        "kind": "annual",
+        "levels": "2"
+      },
+      "description": "All 2 resolutions of this product as one multi-resolution dataset (2 km, 8 km); the viewer picks the level from the zoom. Variables: acabf, acabf-anomaly, dacabfdz, dmrrodz, dtasdz, dtsdz, mrro, pr, tas, tas-anomaly, ts, ts-anomaly; years 1850-2014; 1980 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "MRI-ESM2-0 historical GEMB-SDBN1 2 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/historical/GEMB-SDBN1-2000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/historical/GEMB-SDBN1/2000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -949,23 +1111,6 @@
         "kind": "annual"
       },
       "description": "Variables: acabf, acabf-anomaly, dacabfdz, dmrrodz, dtasdz, dtsdz, mrro, pr, tas, tas-anomaly, ts, ts-anomaly; years 1850-2014; 1980 files.",
-      "params": {
-        "varname": "acabf",
-        "colormap": "viridis"
-      }
-    },
-    {
-      "title": "MRI-ESM2-0 historical GEMB-SDBN1 2 km (climatology)",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/MRI-ESM2-0/historical/GEMB-SDBN1-2000m",
-      "tags": {
-        "region": "AIS",
-        "source": "MRI-ESM2-0",
-        "experiment": "historical",
-        "product": "GEMB-SDBN1",
-        "resolution": "2 km",
-        "kind": "climatology"
-      },
-      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
       "params": {
         "varname": "acabf",
         "colormap": "viridis"
@@ -973,7 +1118,7 @@
     },
     {
       "title": "MRI-ESM2-0 historical GEMB-SDBN1 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/historical/GEMB-SDBN1-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/historical/GEMB-SDBN1/8000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -989,25 +1134,8 @@
       }
     },
     {
-      "title": "MRI-ESM2-0 historical GEMB-SDBN1 8 km (climatology)",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/MRI-ESM2-0/historical/GEMB-SDBN1-8000m",
-      "tags": {
-        "region": "AIS",
-        "source": "MRI-ESM2-0",
-        "experiment": "historical",
-        "product": "GEMB-SDBN1",
-        "resolution": "8 km",
-        "kind": "climatology"
-      },
-      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
-      "params": {
-        "varname": "acabf",
-        "colormap": "viridis"
-      }
-    },
-    {
       "title": "MRI-ESM2-0 historical dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/historical/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/historical/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1024,7 +1152,7 @@
     },
     {
       "title": "MRI-ESM2-0 historical ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/historical/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/historical/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1040,8 +1168,78 @@
       }
     },
     {
+      "title": "MRI-ESM2-0 historical GEMB-SDBN1 (climatology) (2 km + 8 km)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/MRI-ESM2-0/historical/GEMB-SDBN1",
+      "tags": {
+        "region": "AIS",
+        "source": "MRI-ESM2-0",
+        "experiment": "historical",
+        "product": "GEMB-SDBN1",
+        "resolution": "2 km + 8 km",
+        "kind": "climatology",
+        "levels": "2"
+      },
+      "description": "All 2 resolutions of this product as one multi-resolution dataset (2 km, 8 km); the viewer picks the level from the zoom. Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "title": "MRI-ESM2-0 historical GEMB-SDBN1 2 km (climatology)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/MRI-ESM2-0/historical/GEMB-SDBN1/2000m",
+      "tags": {
+        "region": "AIS",
+        "source": "MRI-ESM2-0",
+        "experiment": "historical",
+        "product": "GEMB-SDBN1",
+        "resolution": "2 km",
+        "kind": "climatology"
+      },
+      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "title": "MRI-ESM2-0 historical GEMB-SDBN1 8 km (climatology)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/MRI-ESM2-0/historical/GEMB-SDBN1/8000m",
+      "tags": {
+        "region": "AIS",
+        "source": "MRI-ESM2-0",
+        "experiment": "historical",
+        "product": "GEMB-SDBN1",
+        "resolution": "8 km",
+        "kind": "climatology"
+      },
+      "description": "Variables: acabf, mrro, pr, tas, ts; years 1960-1989; 5 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "title": "MRI-ESM2-0 ssp126 GEMB-SDBN1 (2 km + 8 km)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp126/GEMB-SDBN1",
+      "tags": {
+        "region": "AIS",
+        "source": "MRI-ESM2-0",
+        "experiment": "ssp126",
+        "product": "GEMB-SDBN1",
+        "resolution": "2 km + 8 km",
+        "kind": "annual",
+        "levels": "2"
+      },
+      "description": "All 2 resolutions of this product as one multi-resolution dataset (2 km, 8 km); the viewer picks the level from the zoom. Variables: acabf, acabf-anomaly, dacabfdz, dmrrodz, dtasdz, dtsdz, mrro, pr, tas, tas-anomaly, ts, ts-anomaly; years 2015-2300; 3432 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "MRI-ESM2-0 ssp126 GEMB-SDBN1 2 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp126/GEMB-SDBN1-2000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp126/GEMB-SDBN1/2000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1058,7 +1256,7 @@
     },
     {
       "title": "MRI-ESM2-0 ssp126 GEMB-SDBN1 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp126/GEMB-SDBN1-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp126/GEMB-SDBN1/8000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1075,7 +1273,7 @@
     },
     {
       "title": "MRI-ESM2-0 ssp126 dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp126/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp126/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1091,25 +1289,8 @@
       }
     },
     {
-      "title": "MRI-ESM2-0 ssp126 ocean 8 km (climatology)",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/MRI-ESM2-0/ssp126/ocean",
-      "tags": {
-        "region": "AIS",
-        "source": "MRI-ESM2-0",
-        "experiment": "ssp126",
-        "product": "ocean",
-        "resolution": "8 km",
-        "kind": "climatology"
-      },
-      "description": "Variables: ct, sa; years 1995-2024; 2 files.",
-      "params": {
-        "varname": "ct",
-        "colormap": "viridis"
-      }
-    },
-    {
       "title": "MRI-ESM2-0 ssp126 ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp126/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp126/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1125,8 +1306,43 @@
       }
     },
     {
+      "title": "MRI-ESM2-0 ssp126 ocean 8 km (climatology)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/MRI-ESM2-0/ssp126/ocean/8000m",
+      "tags": {
+        "region": "AIS",
+        "source": "MRI-ESM2-0",
+        "experiment": "ssp126",
+        "product": "ocean",
+        "resolution": "8 km",
+        "kind": "climatology"
+      },
+      "description": "Variables: ct, sa; years 1995-2024; 2 files.",
+      "params": {
+        "varname": "ct",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "title": "MRI-ESM2-0 ssp370 GEMB-SDBN1 (2 km + 8 km)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp370/GEMB-SDBN1",
+      "tags": {
+        "region": "AIS",
+        "source": "MRI-ESM2-0",
+        "experiment": "ssp370",
+        "product": "GEMB-SDBN1",
+        "resolution": "2 km + 8 km",
+        "kind": "annual",
+        "levels": "2"
+      },
+      "description": "All 2 resolutions of this product as one multi-resolution dataset (2 km, 8 km); the viewer picks the level from the zoom. Variables: acabf, acabf-anomaly, dacabfdz, dmrrodz, dtasdz, dtsdz, mrro, pr, tas, tas-anomaly, ts, ts-anomaly; years 2015-2100; 1032 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "MRI-ESM2-0 ssp370 GEMB-SDBN1 2 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp370/GEMB-SDBN1-2000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp370/GEMB-SDBN1/2000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1143,7 +1359,7 @@
     },
     {
       "title": "MRI-ESM2-0 ssp370 GEMB-SDBN1 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp370/GEMB-SDBN1-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp370/GEMB-SDBN1/8000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1160,7 +1376,7 @@
     },
     {
       "title": "MRI-ESM2-0 ssp370 dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp370/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp370/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1176,25 +1392,8 @@
       }
     },
     {
-      "title": "MRI-ESM2-0 ssp370 ocean 8 km (climatology)",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/MRI-ESM2-0/ssp370/ocean",
-      "tags": {
-        "region": "AIS",
-        "source": "MRI-ESM2-0",
-        "experiment": "ssp370",
-        "product": "ocean",
-        "resolution": "8 km",
-        "kind": "climatology"
-      },
-      "description": "Variables: ct, sa; years 1995-2024; 2 files.",
-      "params": {
-        "varname": "ct",
-        "colormap": "viridis"
-      }
-    },
-    {
       "title": "MRI-ESM2-0 ssp370 ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp370/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp370/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1210,8 +1409,43 @@
       }
     },
     {
+      "title": "MRI-ESM2-0 ssp370 ocean 8 km (climatology)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/MRI-ESM2-0/ssp370/ocean/8000m",
+      "tags": {
+        "region": "AIS",
+        "source": "MRI-ESM2-0",
+        "experiment": "ssp370",
+        "product": "ocean",
+        "resolution": "8 km",
+        "kind": "climatology"
+      },
+      "description": "Variables: ct, sa; years 1995-2024; 2 files.",
+      "params": {
+        "varname": "ct",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "title": "MRI-ESM2-0 ssp534-over GEMB-SDBN1 (2 km + 8 km)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp534-over/GEMB-SDBN1",
+      "tags": {
+        "region": "AIS",
+        "source": "MRI-ESM2-0",
+        "experiment": "ssp534-over",
+        "product": "GEMB-SDBN1",
+        "resolution": "2 km + 8 km",
+        "kind": "annual",
+        "levels": "2"
+      },
+      "description": "All 2 resolutions of this product as one multi-resolution dataset (2 km, 8 km); the viewer picks the level from the zoom. Variables: acabf, acabf-anomaly, dacabfdz, dmrrodz, dtasdz, dtsdz, mrro, pr, tas, tas-anomaly, ts, ts-anomaly; years 2015-2300; 3432 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "MRI-ESM2-0 ssp534-over GEMB-SDBN1 2 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp534-over/GEMB-SDBN1-2000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp534-over/GEMB-SDBN1/2000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1228,7 +1462,7 @@
     },
     {
       "title": "MRI-ESM2-0 ssp534-over GEMB-SDBN1 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp534-over/GEMB-SDBN1-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp534-over/GEMB-SDBN1/8000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1245,7 +1479,7 @@
     },
     {
       "title": "MRI-ESM2-0 ssp534-over dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp534-over/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp534-over/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1262,7 +1496,7 @@
     },
     {
       "title": "MRI-ESM2-0 ssp534-over ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp534-over/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp534-over/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1278,8 +1512,26 @@
       }
     },
     {
+      "title": "MRI-ESM2-0 ssp585 GEMB-SDBN1 (2 km + 8 km)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp585/GEMB-SDBN1",
+      "tags": {
+        "region": "AIS",
+        "source": "MRI-ESM2-0",
+        "experiment": "ssp585",
+        "product": "GEMB-SDBN1",
+        "resolution": "2 km + 8 km",
+        "kind": "annual",
+        "levels": "2"
+      },
+      "description": "All 2 resolutions of this product as one multi-resolution dataset (2 km, 8 km); the viewer picks the level from the zoom. Variables: acabf, acabf-anomaly, dacabfdz, dmrrodz, dtasdz, dtsdz, mrro, pr, tas, tas-anomaly, ts, ts-anomaly; years 2015-2300; 3432 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "MRI-ESM2-0 ssp585 GEMB-SDBN1 2 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp585/GEMB-SDBN1-2000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp585/GEMB-SDBN1/2000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1296,7 +1548,7 @@
     },
     {
       "title": "MRI-ESM2-0 ssp585 GEMB-SDBN1 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp585/GEMB-SDBN1-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp585/GEMB-SDBN1/8000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1313,7 +1565,7 @@
     },
     {
       "title": "MRI-ESM2-0 ssp585 dEBM2 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp585/dEBM2-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp585/dEBM2/8000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1329,25 +1581,8 @@
       }
     },
     {
-      "title": "MRI-ESM2-0 ssp585 ocean 8 km (climatology)",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/MRI-ESM2-0/ssp585/ocean",
-      "tags": {
-        "region": "AIS",
-        "source": "MRI-ESM2-0",
-        "experiment": "ssp585",
-        "product": "ocean",
-        "resolution": "8 km",
-        "kind": "climatology"
-      },
-      "description": "Variables: ct, sa; years 1995-2024; 2 files.",
-      "params": {
-        "varname": "ct",
-        "colormap": "viridis"
-      }
-    },
-    {
       "title": "MRI-ESM2-0 ssp585 ocean 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp585/ocean",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/MRI-ESM2-0/ssp585/ocean/8000m",
       "tags": {
         "region": "AIS",
         "source": "MRI-ESM2-0",
@@ -1363,8 +1598,43 @@
       }
     },
     {
+      "title": "MRI-ESM2-0 ssp585 ocean 8 km (climatology)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/climatology/MRI-ESM2-0/ssp585/ocean/8000m",
+      "tags": {
+        "region": "AIS",
+        "source": "MRI-ESM2-0",
+        "experiment": "ssp585",
+        "product": "ocean",
+        "resolution": "8 km",
+        "kind": "climatology"
+      },
+      "description": "Variables: ct, sa; years 1995-2024; 2 files.",
+      "params": {
+        "varname": "ct",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "title": "RACMO2.3p2-ERA ocx SDBN1 (2 km + 8 km)",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/RACMO2.3p2-ERA/ocx/SDBN1",
+      "tags": {
+        "region": "AIS",
+        "source": "RACMO2.3p2-ERA",
+        "experiment": "ocx",
+        "product": "SDBN1",
+        "resolution": "2 km + 8 km",
+        "kind": "annual",
+        "levels": "2"
+      },
+      "description": "All 2 resolutions of this product as one multi-resolution dataset (2 km, 8 km); the viewer picks the level from the zoom. Variables: acabf, dacabfdz, dmrrodz, dtasdz, dtsdz, mrro, pr, tas, ts; years 1979-2025; 423 files.",
+      "params": {
+        "varname": "acabf",
+        "colormap": "viridis"
+      }
+    },
+    {
       "title": "RACMO2.3p2-ERA ocx SDBN1 2 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/RACMO2.3p2-ERA/ocx/SDBN1-2000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/RACMO2.3p2-ERA/ocx/SDBN1/2000m",
       "tags": {
         "region": "AIS",
         "source": "RACMO2.3p2-ERA",
@@ -1381,7 +1651,7 @@
     },
     {
       "title": "RACMO2.3p2-ERA ocx SDBN1 8 km",
-      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/RACMO2.3p2-ERA/ocx/SDBN1-8000m",
+      "url": "icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/RACMO2.3p2-ERA/ocx/SDBN1/8000m",
       "tags": {
         "region": "AIS",
         "source": "RACMO2.3p2-ERA",

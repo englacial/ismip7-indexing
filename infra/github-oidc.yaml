@@ -1,0 +1,82 @@
+# GitHub Actions deploy role for englacial/ismip7-indexing (one-time, account admin).
+#
+#   aws cloudformation deploy --region us-west-2 --stack-name ismip7-virtualize-github \
+#       --template-file infra/github-oidc.yaml --capabilities CAPABILITY_NAMED_IAM
+#
+# Then set the repository variables LAMBDA_RELEASE_ROLE_ARN (the RoleArn output)
+# and LAMBDA_AWS_REGION (us-west-2); the Image workflow's push job assumes the
+# role through OIDC, pushes the arm64 image to ECR and updates the function.
+# The role can only push this function's image and update this function;
+# the stack (infra/lambda-stack.yaml) stays with infra/deploy.sh.
+AWSTemplateFormatVersion: "2010-09-09"
+Description: OIDC role that lets the ismip7-indexing GitHub workflow push the Lambda image and update the function
+Parameters:
+  Repository:
+    Type: String
+    Default: englacial/ismip7-indexing
+  Branch:
+    Type: String
+    Default: main
+  FunctionName:
+    Type: String
+    Default: ismip7-virtualize
+  CreateProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: "false when the account already has the token.actions.githubusercontent.com provider"
+Conditions:
+  MakeProvider: !Equals [!Ref CreateProvider, "true"]
+Resources:
+  Provider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: MakeProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${FunctionName}-github-release
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - MakeProvider
+                - !Ref Provider
+                - !Sub arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub repo:${Repository}:ref:refs/heads/${Branch}
+      Policies:
+        - PolicyName: push-image-and-update-function
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:CompleteLayerUpload
+                  - ecr:DescribeImages
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                Resource: !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${FunctionName}
+              - Effect: Allow
+                Action:
+                  - lambda:GetFunction
+                  - lambda:GetFunctionConfiguration
+                  - lambda:UpdateFunctionCode
+                Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${FunctionName}
+Outputs:
+  RoleArn:
+    Value: !GetAtt Role.Arn

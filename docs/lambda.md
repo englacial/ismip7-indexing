@@ -209,10 +209,25 @@ runs the handler once under the Lambda Runtime Interface Emulator on each:
 repository, `scripts/dev/rie_run.sh` builds, invokes the handler as uid 1000
 with `/dev/shm` read-only and fails unless the group verifies. The same two
 commands run locally (`PLATFORM=linux/arm64` builds through qemu on an x86
-machine). Production is deployed with `LAMBDA_ARCH=x86_64|arm64 infra/deploy.sh`,
-which sets the image platform and the stack's `Architecture` parameter;
-switching an existing function between architectures is a stack update plus
-an image push.
+machine).
+
+**Production image from CI (arm64).** The laptop cannot build arm64 images
+without qemu, and the hosted arm64 runner builds them natively, so the
+`arm64` job pushes the image it just verified: on `main`, when the repository
+variable `LAMBDA_RELEASE_ROLE_ARN` is set, it assumes that role through
+GitHub's OIDC provider (`aws-actions/configure-aws-credentials`), pushes
+`<account>.dkr.ecr.us-west-2.amazonaws.com/ismip7-virtualize:<sha>-arm64`
+and runs `aws lambda update-function-code --architectures arm64`. The role
+is created once by an account admin from `infra/github-oidc.yaml` (an
+`AWS::IAM::OIDCProvider` for `token.actions.githubusercontent.com`, or
+`CreateProvider=false` if the account has one, and a role trusting only
+`repo:englacial/ismip7-indexing:ref:refs/heads/main` with ECR push on this
+repository and `UpdateFunctionCode` on this function); its `RoleArn` output
+goes into the repository variables `LAMBDA_RELEASE_ROLE_ARN` and
+`LAMBDA_AWS_REGION`. The stack keeps an `Architecture` parameter: after the
+first CI push, update the stack once with `Architecture=arm64` and that image
+URI (`infra/deploy.sh` with `LAMBDA_ARCH=arm64` does it, but builds locally),
+so a later stack update does not flip the function back to x86_64.
 
 ## Verified under the Runtime Interface Emulator (2026-11-01)
 

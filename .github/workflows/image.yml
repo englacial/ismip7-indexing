@@ -1,6 +1,9 @@
 # Build the Lambda container image for both architectures and run the handler
 # once under the Lambda Runtime Interface Emulator on each (synthetic files,
-# local repository: no AWS access). Deployment stays with infra/deploy.sh.
+# local repository: no AWS access). On main, when the repository variable
+# LAMBDA_RELEASE_ROLE_ARN is set (infra/github-oidc.yaml), the arm64 image
+# that passed is pushed to ECR from the native runner and the function is
+# pointed at it. The stack itself stays with infra/deploy.sh.
 name: Image
 
 on:
@@ -24,6 +27,10 @@ on:
       - scripts/dev/rie_*
       - .github/workflows/image.yml
   workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
   image:
@@ -52,3 +59,26 @@ jobs:
         env:
           PLATFORM: ${{ matrix.platform }}
         run: scripts/dev/rie_run.sh "$RUNNER_TEMP/rie"
+      - name: Assume the release role (OIDC)
+        if: matrix.arch == 'arm64' && github.ref == 'refs/heads/main' && vars.LAMBDA_RELEASE_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.LAMBDA_RELEASE_ROLE_ARN }}
+          aws-region: ${{ vars.LAMBDA_AWS_REGION || 'us-west-2' }}
+      - name: Push the arm64 image and update the function
+        if: matrix.arch == 'arm64' && github.ref == 'refs/heads/main' && vars.LAMBDA_RELEASE_ROLE_ARN != ''
+        env:
+          FUNCTION: ismip7-virtualize
+          REGION: ${{ vars.LAMBDA_AWS_REGION || 'us-west-2' }}
+        run: |
+          set -euo pipefail
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          ECR="$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
+          IMAGE="$ECR/$FUNCTION:${GITHUB_SHA}-arm64"
+          aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ECR"
+          docker tag ismip7-virtualize:rie "$IMAGE"
+          docker push "$IMAGE"
+          aws lambda update-function-code --region "$REGION" --function-name "$FUNCTION" \
+              --image-uri "$IMAGE" --architectures arm64 >/dev/null
+          aws lambda wait function-updated --region "$REGION" --function-name "$FUNCTION"
+          echo "function $FUNCTION now runs $IMAGE (arm64)"

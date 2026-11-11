@@ -1399,7 +1399,7 @@ def _open_with_processes(
 
 def _common_prefix(keys: list[str]) -> str:
     # character-wise prefix on purpose, then cut back to a directory boundary
-    return os.path.commonprefix(keys).rsplit("/", 1)[0] + "/" if keys else ""  # noqa: RUF071
+    return os.path.commonprefix(keys).rsplit("/", 1)[0] + "/" if keys else ""
 
 
 __all__ = [

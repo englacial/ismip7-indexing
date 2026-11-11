@@ -7,7 +7,7 @@ Usage::
 
     # local repo, one group, verify two files per variable afterwards
     ismip7-virtualize --index index.parquet --region AIS \\
-        --groups CESM2-WACCM/historical/SDBN1-8000m --target local:/tmp/icechunk-ais --verify 2
+        --groups CESM2-WACCM/historical/SDBN1/8000m --target local:/tmp/icechunk-ais --verify 2
 
     # production (credentials from sc_creds.json)
     ismip7-virtualize --index index.parquet --region GrIS --target s3://us-west-2.opendata.source.coop/englacial/ismip7/icechunk-gris \\
@@ -312,7 +312,7 @@ def main(argv: list[str] | None = None) -> int:
         "--groups",
         nargs="*",
         default=None,
-        help="glob(s) on group paths, e.g. 'CESM2-WACCM/*/SDBN1-8000m'",
+        help="glob(s) on group paths, e.g. 'CESM2-WACCM/*/SDBN1/8000m'",
     )
     ap.add_argument(
         "--target",

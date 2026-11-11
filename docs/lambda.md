@@ -18,7 +18,7 @@ What the workers wait for depends on the read block size. A netCDF writer
 that appends chunks as it goes leaves the chunk index scattered through the
 file, and the parser fetches every block the index touches. With the
 library's default 1 MiB blocks a finely chunked AIS 2 km file
-(`CESM2-WACCM/ssp126/SDBN1-2000m`, chunked (1, 21, 3041), 1,740 chunks in
+(`CESM2-WACCM/ssp126/SDBN1/2000m`, chunked (1, 21, 3041), 1,740 chunks in
 71 MB) cost 32 requests and 32 MB, and an ocean decade file 93 requests and
 96 MB; a Lambda's network tops out near 110 MB/s, so the open phase of a
 1,815-file 2 km group took 534 s and the 3,146-file ones could not finish.
@@ -30,7 +30,7 @@ native-chunk writes read source files through a 1 MiB block cache
 refetched its buffer on every backward seek, which made one climatology
 step take 250 s.
 
-Measured on a 1,980-file GrIS 1 km group (`CanESM5/historical/dEBM2-1000m`
+Measured on a 1,980-file GrIS 1 km group (`CanESM5/historical/dEBM2/1000m`
 and siblings), `--verify 1` unless noted:
 
 | Memory | vCPUs | Workers | Open | s/file | Commit + verify | Total | Peak memory | GB-s | Cost/group |
@@ -41,7 +41,7 @@ and siblings), `--verify 1` unless noted:
 | 10,240 MB | 6 | 6 | 198 s | 0.100 | 27 s | 225 s | 807 MB | 2,250 | $0.037 |
 | 10,240 MB | 6 | 24 | 81 s | 0.041 | 25 s | 106 s | 1,829 MB | 1,067 | $0.018 |
 
-The AIS 8 km group `CESM2-WACCM/historical/SDBN1-8000m` (1,815 files) opened
+The AIS 8 km group `CESM2-WACCM/historical/SDBN1/8000m` (1,815 files) opened
 at 0.059 s/file with 6 workers at 10 GB; the 1 km SDBN1 GrIS group with ten
 times the chunks per file (786,060 references) opened at 0.149 s/file and
 took 43 s to commit and verify, peaking at 1,060 MB.
@@ -227,7 +227,7 @@ invocation of the same group).
 
 ```bash
 ismip7-index --out index.parquet --save-listing listing-$(date +%F).txt.gz
-ismip7-fanout --index index.parquet --region AIS --groups 'CESM2-WACCM/historical/SDBN1-8000m' \
+ismip7-fanout --index index.parquet --region AIS --groups 'CESM2-WACCM/historical/SDBN1/8000m' \
     --function ismip7-virtualize --write-creds sc_creds.json --verify 1 --report run-ais-1.json  # one group first
 # measure seconds per file from that report (see Sizing), then plan and run the rest:
 ismip7-fanout --index index.parquet --region AIS --function ismip7-virtualize --write-creds sc_creds.json \
@@ -238,6 +238,17 @@ ismip7-fanout --index index.parquet --region AIS --function ismip7-virtualize --
 # deferred; --concurrency 100 staggers the commits through the data.source.coop proxy while the
 # function's reserved concurrency (250) would allow a whole region at once
 ```
+
+**Layout.** A group is `<source>/<experiment>/<product>/<resolution>m`
+(`CESM2-WACCM/ssp585/SDBN1/2000m` next to `.../SDBN1/8000m`; `climatology/`
+or `bias/` first for those kinds). The *family* group above the resolutions
+carries an OME-NGFF `multiscales` attribute naming them finest first with
+their metre scale, so gridlook (and any multiscale-aware reader) opens the
+family as one multi-resolution dataset. Workers never write the family group
+(shared parents do not rebase); run `ismip7-multiscales --region <AIS|GrIS>
+--write-creds sc_creds.json` once after a fan-out to write every family's
+attribute in one commit (idempotent; `--dry-run` lists the families). The
+catalog has one entry per level group and one per family with several levels.
 
 **Re-index before every pass.** The source files change under the store: on
 2026-11-06 the provider replaced the 2300 files of four temperature variables
@@ -309,7 +320,7 @@ line.
 ## Local equivalent
 
 ```bash
-ismip7-fanout --index index.parquet --region AIS --groups CESM2-WACCM/historical/SDBN1-8000m \
+ismip7-fanout --index index.parquet --region AIS --groups CESM2-WACCM/historical/SDBN1/8000m \
     --target local:/tmp/icechunk-ais --local --verify 1 --report run.json
 ```
 

@@ -207,7 +207,7 @@ def test_submission_field_rules():
                 version=2,
                 year_start=2150,
                 year_end=2150,
-                group_path="CESM2-WACCM/ssp585/SDBN1-2000m",
+                group_path="CESM2-WACCM/ssp585/SDBN1/2000m",
             ),
         ),
         (
@@ -241,7 +241,7 @@ def test_submission_field_rules():
                 source="RACMO2.3p2-ERA",
                 experiment="ocx",
                 product="SDBN1-8000m",
-                group_path="RACMO2.3p2-ERA/ocx/SDBN1-8000m",
+                group_path="RACMO2.3p2-ERA/ocx/SDBN1/8000m",
             ),
         ),
         (
@@ -267,7 +267,7 @@ def test_submission_field_rules():
                 variable="acabf",
                 year_start=1960,
                 year_end=1989,
-                group_path="climatology/CESM2-WACCM/historical/SDBN1-2000m",
+                group_path="climatology/CESM2-WACCM/historical/SDBN1/2000m",
             ),
         ),
         (
@@ -276,7 +276,7 @@ def test_submission_field_rules():
                 kind=ForcingKind.BIAS,
                 variable="ct",
                 product="ocean",
-                group_path="bias/CESM2-WACCM/historical/ocean",
+                group_path="bias/CESM2-WACCM/historical/ocean/8000m",
             ),
         ),
         (

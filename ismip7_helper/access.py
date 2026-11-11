@@ -8,7 +8,7 @@ call, for xarray's ``zarr`` engine and for ``rustytree``::
 
     dt = open_store("AIS")                                   # DataTree, engine="zarr"
     dt = open_store("AIS", engine="rustytree")               # same, via rustytree
-    ds = open_group("AIS", "CESM2-WACCM/ssp585/SDBN1-8000m") # one group as a Dataset
+    ds = open_group("AIS", "CESM2-WACCM/ssp585/SDBN1/8000m") # one group as a Dataset
 
 ``ISMIP7_STORE_<REGION>`` (e.g. ``ISMIP7_STORE_AIS=local:/path/icechunk-ais``)
 overrides the production location, which is how the notebooks run against a

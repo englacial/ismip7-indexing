@@ -10,7 +10,7 @@ commits from other workers) and optionally verifies it. It returns the
 Event::
 
     {
-      "group_path": "CESM2-WACCM/historical/SDBN1-8000m",
+      "group_path": "CESM2-WACCM/historical/SDBN1/8000m",
       "keys": [["ismip/ismip7-ais-forcing/data/.../acabf_..._1850.nc", 2095405], ...],
       "target": "s3://us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais",
       "region": "us-west-2",

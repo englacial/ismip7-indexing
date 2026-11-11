@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -176,11 +177,68 @@ def build_catalog(
             )
         )
     sort_key.sort(key=lambda kv: kv[0])
+    datasets = [e for _, e in sort_key]
+    datasets.extend(_family_entries(datasets, store_url))
+    # a family entry sorts just before its levels (its path is their prefix)
+    root = normalise_store_url(store_url)
+    datasets.sort(
+        key=lambda d: (
+            d["tags"]["source"],
+            d["tags"]["experiment"],
+            d["url"].removeprefix(f"icechunk+{root}/"),
+        )
+    )
     return {
         "type": "gridlook_catalog",
         "title": title or f"ISMIP7 {region_name} forcing",
-        "datasets": [e for _, e in sort_key],
+        "datasets": datasets,
     }
+
+
+def _family_entries(datasets: list[dict[str, Any]], store_url: str) -> list[dict[str, Any]]:
+    """One entry per family group with several resolutions: the pyramid a viewer opens as levels.
+
+    A family is the parent of level groups named ``<metres>m``
+    (``CESM2-WACCM/ssp585/SDBN1`` over ``.../SDBN1/2000m`` and ``.../SDBN1/8000m``);
+    it carries the ``multiscales`` attribute written by
+    :func:`~.store.annotate_multiscales`. Its entry keeps the levels' tags with
+    ``resolution`` listing every level, and the first level's params.
+    """
+    root = normalise_store_url(store_url)
+    families: dict[str, list[dict[str, Any]]] = {}
+    for d in datasets:
+        path = d["url"].removeprefix(f"icechunk+{root}/")
+        parent, _, leaf = path.rpartition("/")
+        if parent and re.fullmatch(r"\d+m", leaf):
+            families.setdefault(parent, []).append(d)
+    out = []
+    for family, levels in families.items():
+        if len(levels) < 2:
+            continue
+        levels.sort(key=lambda d: int(d["url"].rsplit("/", 1)[1][:-1]))
+        first = levels[0]
+        resolutions = [d["tags"].get("resolution", "") for d in levels]
+        title = (
+            re.sub(r" \S+ (k?m)$", "", first["title"])
+            if first["tags"].get("resolution")
+            else first["title"]
+        )
+        out.append(
+            {
+                "title": f"{title} ({' + '.join(resolutions)})",
+                "url": f"icechunk+{root}/{family}",
+                "tags": {
+                    **first["tags"],
+                    "resolution": " + ".join(resolutions),
+                    "levels": str(len(levels)),
+                },
+                "description": f"All {len(levels)} resolutions of this product as one multi-resolution "
+                f"dataset ({', '.join(resolutions)}); the viewer picks the level from the zoom. "
+                + first["description"],
+                "params": dict(first["params"]),
+            }
+        )
+    return out
 
 
 def dumps(catalog: dict[str, Any]) -> str:

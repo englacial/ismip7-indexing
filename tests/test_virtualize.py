@@ -320,7 +320,7 @@ def _group(root, registry, specs):
 def test_concat_group_two_years_two_variables(synthetic_root, local_registry):
     keys = [_key(var=v, year=y) for v in ("acabf", "tas") for y in (1850, 1851)]
     g = _group(synthetic_root, local_registry, [(k, {"seed": i}) for i, k in enumerate(keys)])
-    assert g.group_path == "CESM2-WACCM/historical/SDBN1-32000m" and g.n_files == 4
+    assert g.group_path == "CESM2-WACCM/historical/SDBN1/32000m" and g.n_files == 4
     ds = g.ds
     assert set(ds.data_vars) == {"acabf", "tas"} and ds.sizes["time"] == 24
     assert ds["acabf"].data.manifest.shape_chunk_grid == (24, 1, 1)

@@ -59,6 +59,7 @@ ismip7-conventions-report = "ismip7_helper.report:main"
 ismip7-virtualize = "ismip7_helper.pipeline:main"
 ismip7-fanout = "ismip7_helper.fanout:main"
 ismip7-catalog = "ismip7_helper.catalog:main"
+ismip7-multiscales = "ismip7_helper.multiscales:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["ismip7_helper"]

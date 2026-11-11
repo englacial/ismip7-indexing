@@ -232,14 +232,14 @@ def test_ensure_hierarchy(local_target):
     import zarr
 
     repo = open_repository(local_target, create=True)
-    gps = ["CESM2-WACCM/historical/SDBN1-32000m", "climatology/UKESM1-0-LL/ssp585/GEMB-8000m"]
+    gps = ["CESM2-WACCM/historical/SDBN1/32000m", "climatology/UKESM1-0-LL/ssp585/GEMB/8000m"]
     snap = ensure_hierarchy(repo, gps, region="AIS")
     assert snap is not None
     root = zarr.open_group(repo.readonly_session("main").store, mode="r")
     assert root.attrs["ismip7_region"] == "AIS"
     for p in ("CESM2-WACCM", "CESM2-WACCM/historical", "climatology/UKESM1-0-LL/ssp585"):
         assert isinstance(root[p], zarr.Group)
-    assert "CESM2-WACCM/historical/SDBN1-32000m" not in root
+    assert "CESM2-WACCM/historical/SDBN1/32000m" not in root
     assert ensure_hierarchy(repo, gps, region="AIS") is None  # idempotent, no commit
     assert len(list(repo.ancestry(branch="main"))) == 2
     assert existing_groups(repo) == {}  # parents are not data groups
@@ -283,7 +283,7 @@ def test_write_read_verify_roundtrip(local_group, local_target, synthetic_root):
     result, keys = local_group
     repo = open_repository(local_target, create=True)
     wr = write_group(repo, result)
-    assert wr.group_path == "CESM2-WACCM/historical/SDBN1-32000m" and wr.n_files == 4
+    assert wr.group_path == "CESM2-WACCM/historical/SDBN1/32000m" and wr.n_files == 4
     assert wr.nrefs == 24 + 6  # acabf one chunk per step, tas chunks of 4 steps
     found = existing_groups(repo)
     assert list(found) == [wr.group_path]
@@ -491,7 +491,7 @@ def test_refs_match_the_s3_container_prefix(local_group, tmp_path):
 
     # a reference outside the container is refused at write time
     bad = result.ds.vz.rename_paths(lambda p: "s3://us-west-2.opendata.source.coop/other/x.nc")
-    bad_result = type(result)("CESM2-WACCM/ssp585/SDBN1-32000m", bad, 1, [])
+    bad_result = type(result)("CESM2-WACCM/ssp585/SDBN1/32000m", bad, 1, [])
     with pytest.raises(Exception, match=r"(?i)container"):
         write_group(repo, bad_result)
 
@@ -616,8 +616,8 @@ def test_two_groups_commit_independently(local_group, local_target, synthetic_ro
     r2 = concat_group([parse_key(k).forcing for k in keys], local_registry(), urls=urls)
     write_group(repo, r2)
     assert set(existing_groups(repo)) == {
-        "CESM2-WACCM/historical/SDBN1-32000m",
-        "CESM2-WACCM/ssp585/SDBN1-32000m",
+        "CESM2-WACCM/historical/SDBN1/32000m",
+        "CESM2-WACCM/ssp585/SDBN1/32000m",
     }
     ds = open_group(repo, r2.group_path)
     assert ds.sizes["time"] == 12 and isinstance(ds, xr.Dataset)
@@ -827,3 +827,65 @@ def test_one_step_stand_in_file_is_spread_over_its_year(synthetic_root, local_ta
         for t in (24, 30, 35):
             np.testing.assert_array_equal(stored.isel(time=t).values, src["acabf"].values[0])
     assert verify_group(repo, result, n_files=3, seed=0).ok
+
+
+def test_family_levels_and_multiscales_attrs():
+    from ismip7_helper.store import family_levels, multiscales_attrs
+
+    fams = family_levels(
+        [
+            "A/x/SDBN1/8000m",
+            "A/x/SDBN1/2000m",
+            "A/x/ocean/8000m",
+            "ocean/ocx/cold",
+            "B/y/dEBM2/4000m",
+        ]
+    )
+    assert fams == {
+        "A/x/SDBN1": [(2000, "2000m"), (8000, "8000m")],
+        "A/x/ocean": [(8000, "8000m")],
+        "B/y/dEBM2": [(4000, "4000m")],
+    }
+    a = multiscales_attrs("A/x/SDBN1", fams["A/x/SDBN1"], dims=("time", "y", "x"))
+    ms = a["multiscales"][0]
+    assert [d["path"] for d in ms["datasets"]] == ["2000m", "8000m"]
+    assert ms["datasets"][1]["coordinateTransformations"] == [
+        {"type": "scale", "scale": [1.0, 8000.0, 8000.0]}
+    ]
+    assert [ax["name"] for ax in ms["axes"]] == ["time", "y", "x"] and ms["axes"][1][
+        "unit"
+    ] == "metre"
+    assert a["ismip7_family"] == "SDBN1" and a["ismip7_resolutions_m"] == [2000, 8000]
+    o = multiscales_attrs("A/x/ocean", fams["A/x/ocean"], dims=("time", "z", "y", "x"))
+    assert o["multiscales"][0]["datasets"][0]["coordinateTransformations"][0]["scale"] == [
+        1.0,
+        1.0,
+        8000.0,
+        8000.0,
+    ]
+    assert "unit" not in o["multiscales"][0]["axes"][1]
+
+
+def test_annotate_multiscales_writes_the_family_group(synthetic_root, local_target):
+    from ismip7_helper.store import annotate_multiscales
+
+    repo = open_repository(local_target, create=True)
+    for res in (8000, 32000):
+        keys = _keys(years=(1850,), variables=("acabf",), product=f"SDBN1-{res}m")
+        urls = {}
+        for k in keys:
+            p = synthetic_root / k
+            write_forcing_file(p, year=1850, variable="acabf", resolution_m=res)
+            urls[k] = f"file://{p}"
+        result = concat_group([parse_key(k).forcing for k in keys], local_registry(), urls=urls)
+        assert result.group_path == f"CESM2-WACCM/historical/SDBN1/{res}m"
+        ensure_hierarchy(repo, [result.group_path])
+        write_group(repo, result)
+    snap, fams = annotate_multiscales(repo)
+    assert snap and fams == {"CESM2-WACCM/historical/SDBN1": [(8000, "8000m"), (32000, "32000m")]}
+    g = open_group(repo, "CESM2-WACCM/historical/SDBN1")
+    ms = g.attrs["multiscales"][0]
+    assert [d["path"] for d in ms["datasets"]] == ["8000m", "32000m"]
+    assert g.attrs["ismip7_resolutions_m"] == [8000, 32000]
+    assert annotate_multiscales(repo) == (None, fams)  # idempotent
+    assert annotate_multiscales(repo, dry_run=True)[0] is None

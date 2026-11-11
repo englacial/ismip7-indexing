@@ -30,7 +30,7 @@ env:
   GRIDLOOK_REF: 0e7c178d1b2387f5b69edcac8aeaa0e1c94e16e2 # upstream/levels-lod, 2026-11-10
   # Opened when the page is loaded without a hash (gridlook would otherwise
   # open its own CMIP6 example): the dataset, then "::name=value" parameters.
-  DEFAULT_DATASET: icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/historical/SDBN1-8000m::varname=acabf
+  DEFAULT_DATASET: icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/historical/SDBN1::varname=acabf
 
 jobs:
   build:

@@ -57,7 +57,7 @@ r = parse_key("ismip/ismip7-ais-forcing/data/CESM2-WACCM/ssp585/SDBN1-2000m/acab
               "acabf_AIS_CESM2-WACCM_ssp585_SDBN1-2000m_v2_2150.nc")
 r.forcing.source, r.forcing.experiment, r.forcing.product_model, r.forcing.resolution_m
 # ('CESM2-WACCM', 'ssp585', 'SDBN1', 2000)
-r.forcing.group_path        # 'CESM2-WACCM/ssp585/SDBN1-2000m'  (where it lands in the store)
+r.forcing.group_path        # 'CESM2-WACCM/ssp585/SDBN1/2000m'  (where it lands in the store)
 r.findings                  # [] -- mismatches between name and directory would be listed here
 
 grid_registry()[("AIS", 2000)].cf_grid_mapping_attrs()["crs_wkt"]
@@ -72,7 +72,7 @@ report rather than a traceback.
 ```python
 from ismip7_helper.access import open_group, open_store, list_groups
 
-ds = open_group("AIS", "CESM2-WACCM/ssp585/SDBN1-8000m")   # one group, xarray Dataset
+ds = open_group("AIS", "CESM2-WACCM/ssp585/SDBN1/8000m")   # one group, xarray Dataset
 dt = open_store("GrIS", engine="rustytree")               # whole store as a DataTree
 ```
 
@@ -113,7 +113,7 @@ repo = icechunk.Repository.open(
     },
 )
 ds = xr.open_zarr(repo.readonly_session("main").store,
-                  group="CESM2-WACCM/historical/SDBN1-8000m", consolidated=False)
+                  group="CESM2-WACCM/historical/SDBN1/8000m", consolidated=False)
 ```
 
 ## References

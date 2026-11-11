@@ -68,8 +68,8 @@ def test_run_event_writes_and_verifies(synthetic_root, tmp_path, monkeypatch):
     assert json.dumps(out)  # serialisable, as a Lambda return must be
     repo = open_repository(StoreTarget.parse(ev["target"]), readonly=True)
     found = existing_groups(repo)
-    assert list(found) == ["CESM2-WACCM/historical/SDBN1-32000m"]
-    assert found["CESM2-WACCM/historical/SDBN1-32000m"][VERIFIED_ATTR] == out["snapshot_id"]
+    assert list(found) == ["CESM2-WACCM/historical/SDBN1/32000m"]
+    assert found["CESM2-WACCM/historical/SDBN1/32000m"][VERIFIED_ATTR] == out["snapshot_id"]
 
 
 def test_run_event_deletes_a_group_that_fails_verification(synthetic_root, tmp_path, monkeypatch):
@@ -104,7 +104,7 @@ def test_run_event_refuses_s3_without_write_credentials(monkeypatch):
         var="acabf", year=1850, esm="CESM2-WACCM", exp="historical", product="SDBN1-32000m", ver=2
     )
     ev = {
-        "group_path": "CESM2-WACCM/historical/SDBN1-32000m",
+        "group_path": "CESM2-WACCM/historical/SDBN1/32000m",
         "keys": [[key, 1]],
         "target": "s3://bucket/englacial/ismip7/icechunk-ais",
     }
@@ -131,7 +131,7 @@ def test_run_event_reports_failure_instead_of_raising(synthetic_root, tmp_path):
     out = run_event(ev)
     assert out["status"] == "failed" and "do not parse" in out["error"]
     ev = _event(synthetic_root, tmp_path, keys, urls)
-    ev["group_path"] = "CESM2-WACCM/ssp585/SDBN1-32000m"
+    ev["group_path"] = "CESM2-WACCM/ssp585/SDBN1/32000m"
     assert "do not all belong" in run_event(ev)["error"]
 
 
@@ -209,8 +209,8 @@ def test_fanout_local_cli(synthetic_root, tmp_path, monkeypatch):
     runs = json.loads(report.read_text())
     assert {r["n_workers"] for r in runs} == {2} and all(r["cpu_count"] for r in runs)
     assert {r["group_path"]: r["status"] for r in runs} == {
-        "CESM2-WACCM/historical/SDBN1-32000m": "verified",
-        "CESM2-WACCM/ssp585/SDBN1-32000m": "verified",
+        "CESM2-WACCM/historical/SDBN1/32000m": "verified",
+        "CESM2-WACCM/ssp585/SDBN1/32000m": "verified",
     }
 
     # second run, for real (no --dry-run): both are verified and current, so both skip
@@ -242,8 +242,8 @@ def test_fanout_local_cli(synthetic_root, tmp_path, monkeypatch):
     )
     rc, got = run_again("--verify", "1")
     assert rc == 0 and got == {
-        "CESM2-WACCM/historical/SDBN1-32000m": ("skipped", "verified"),
-        "CESM2-WACCM/ssp585/SDBN1-32000m": ("skipped", "verified"),
+        "CESM2-WACCM/historical/SDBN1/32000m": ("skipped", "verified"),
+        "CESM2-WACCM/ssp585/SDBN1/32000m": ("skipped", "verified"),
     }
     repo = open_repository(StoreTarget.parse(f"local:{tmp_path / 'repo'}"))
     assert len(list(repo.ancestry(branch="main"))) == n_commits  # nothing written
@@ -254,8 +254,8 @@ def test_fanout_local_cli(synthetic_root, tmp_path, monkeypatch):
     )
     rc, got = run_again("--verify", "1")
     assert rc == 0 and got == {
-        "CESM2-WACCM/historical/SDBN1-32000m": ("skipped", "verified"),
-        "CESM2-WACCM/ssp585/SDBN1-32000m": ("verified", "sources changed"),
+        "CESM2-WACCM/historical/SDBN1/32000m": ("skipped", "verified"),
+        "CESM2-WACCM/ssp585/SDBN1/32000m": ("verified", "sources changed"),
     }
 
 
@@ -292,7 +292,7 @@ def test_fanout_dry_run_prints_events(tmp_path, capsys):
     rc = fanout_main(["--index", str(index), "--region", "AIS", "--dry-run"])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "CESM2-WACCM/ctrl/SDBN1-8000m\t2 files" in out
+    assert "CESM2-WACCM/ctrl/SDBN1/8000m\t2 files" in out
 
 
 # --------------------------------------------------------------------------- Phase C review
@@ -313,7 +313,7 @@ def _s3_event():
         var="acabf", year=1850, esm="CESM2-WACCM", exp="historical", product="SDBN1-32000m", ver=2
     )
     return {
-        "group_path": "CESM2-WACCM/historical/SDBN1-32000m",
+        "group_path": "CESM2-WACCM/historical/SDBN1/32000m",
         "keys": [[key, 1]],
         "target": "s3://bucket/englacial/ismip7/icechunk-ais",
     }
@@ -471,8 +471,8 @@ def _two_group_index(root, tmp_path):
     return index
 
 
-HIST = "CESM2-WACCM/historical/SDBN1-32000m"
-SSP = "CESM2-WACCM/ssp585/SDBN1-32000m"
+HIST = "CESM2-WACCM/historical/SDBN1/32000m"
+SSP = "CESM2-WACCM/ssp585/SDBN1/32000m"
 
 
 def _local_fanout(index, root, repo, report, *extra):

@@ -16,6 +16,7 @@ import io
 import json
 import logging
 import os
+import re
 import subprocess
 import time
 from collections.abc import Callable, Iterable
@@ -683,6 +684,130 @@ def mark_verified(
     raise AssertionError("unreachable")
 
 
+FAMILY_ATTR = "ismip7_family"
+_LEVEL_RE = re.compile(r"^(\d+)m$")
+
+
+def family_levels(groups: Iterable[str]) -> dict[str, list[tuple[int, str]]]:
+    """Group data-group paths by family: ``{family: [(resolution_m, leaf), ...]}``, finest first.
+
+    A family is the parent of groups whose leaf names are ``<metres>m``
+    (``CESM2-WACCM/ssp585/SDBN1`` for ``.../SDBN1/2000m`` and ``.../SDBN1/8000m``).
+    Groups with any other leaf are not levels of anything.
+    """
+    out: dict[str, list[tuple[int, str]]] = {}
+    for gp in groups:
+        parent, _, leaf = gp.strip("/").rpartition("/")
+        m = _LEVEL_RE.match(leaf)
+        if parent and m:
+            out.setdefault(parent, []).append((int(m.group(1)), leaf))
+    return {k: sorted(v) for k, v in sorted(out.items())}
+
+
+def multiscales_attrs(
+    family: str, levels: list[tuple[int, str]], *, dims: tuple[str, ...]
+) -> dict[str, Any]:
+    """The family group's attributes: OME-NGFF 0.4 ``multiscales`` over its resolution children.
+
+    ``dims`` are the dimensions of the family's data arrays (``time, y, x`` or
+    ``time, z, y, x``); ``y`` and ``x`` carry the metre unit and the scale, so a
+    viewer reads the ground resolution without opening a level.
+    """
+    axes = []
+    for d in dims:
+        if d in ("y", "x"):
+            axes.append({"name": d, "type": "space", "unit": "metre"})
+        elif d == "time":
+            axes.append({"name": d, "type": "time"})
+        else:
+            axes.append({"name": d, "type": "space"})
+    datasets = [
+        {
+            "path": leaf,
+            "coordinateTransformations": [
+                {"type": "scale", "scale": [float(res) if d in ("y", "x") else 1.0 for d in dims]}
+            ],
+        }
+        for res, leaf in levels
+    ]
+    return {
+        "multiscales": [
+            {
+                "version": "0.4",
+                "name": family.rsplit("/", 1)[-1],
+                "axes": axes,
+                "datasets": datasets,
+                "type": "ismip7 resolution levels",
+                "metadata": {"description": "the same product on each of its grids, finest first"},
+            }
+        ],
+        FAMILY_ATTR: family.rsplit("/", 1)[-1],
+        "ismip7_resolutions_m": [res for res, _ in levels],
+    }
+
+
+def _family_dims(root: Any, family: str, leaf: str) -> tuple[str, ...]:
+    """Dimensions of the first time-dependent array of the level group ``family/leaf``."""
+    g = root[f"{family}/{leaf}"]
+    for name in sorted(g.array_keys()):
+        dims = tuple(g[name].metadata.dimension_names or ())
+        if "time" in dims and len(dims) >= 3:
+            return dims
+    return ("time", "y", "x")
+
+
+def annotate_multiscales(
+    repo: Any,
+    *,
+    branch: str = "main",
+    dry_run: bool = False,
+    rebase_tries: int = 200,
+    restage_tries: int = 8,
+) -> tuple[str | None, dict[str, list[tuple[int, str]]]]:
+    """Write ``multiscales`` on every family group whose levels are in the store.
+
+    One commit for the whole store (a serial step after a fan-out: the
+    family groups are shared parents, which concurrent workers must not
+    touch). Returns the snapshot id (``None`` when nothing changed or with
+    ``dry_run``) and the families found. Families with one level get the
+    attribute too; a viewer opens them as single-level datasets.
+    """
+    import icechunk
+    import zarr
+
+    groups = existing_groups(repo, branch)
+    families = family_levels(groups)
+    if not families:
+        return None, families
+    for attempt in range(restage_tries + 1):
+        session = repo.writable_session(branch)
+        root = zarr.open_group(session.store, mode="r+")
+        changed = 0
+        for family, levels in families.items():
+            dims = _family_dims(root, family, levels[0][1])
+            want = multiscales_attrs(family, levels, dims=dims)
+            g = root[family]
+            if all(g.attrs.get(k) == v for k, v in want.items()):
+                continue
+            if not dry_run:
+                g.update_attributes(want)
+            changed += 1
+        if dry_run or not changed:
+            return None, families
+        try:
+            return session.commit(
+                f"multiscales on {changed} family group(s)",
+                metadata={"operation": "annotate_multiscales", "families": changed, **provenance()},
+                rebase_with=icechunk.ConflictDetector(),
+                rebase_tries=rebase_tries,
+            ), families
+        except icechunk.ConflictError:
+            if attempt >= restage_tries:
+                raise
+            _conflict_pause("multiscales", attempt)
+    raise AssertionError("unreachable")
+
+
 def delete_group(
     repo: Any,
     group_path: str,
@@ -996,6 +1121,7 @@ def verify_group(
 
 
 __all__ = [
+    "FAMILY_ATTR",
     "MANIFEST_SPLIT_CHUNKS",
     "NOTES_ATTR",
     "REGION_ATTR",
@@ -1008,14 +1134,17 @@ __all__ = [
     "VerifyResult",
     "WriteResult",
     "ancestors",
+    "annotate_multiscales",
     "check_credentials_lifetime",
     "check_target_region",
     "container_credentials",
     "delete_group",
     "ensure_hierarchy",
     "existing_groups",
+    "family_levels",
     "load_sc_creds",
     "mark_verified",
+    "multiscales_attrs",
     "open_group",
     "open_repository",
     "open_source",

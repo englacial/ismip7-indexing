@@ -41,9 +41,15 @@ def test_one_entry_per_group(index_df, region):
     cat = build_catalog(index_df, region=region, store_url=AIS_STORE)
     groups = _expected_groups(index_df, region)
     assert cat["type"] == "gridlook_catalog"
-    assert len(cat["datasets"]) == len(groups) > 0
-    urls = {d["url"] for d in cat["datasets"]}
+    levels = [d for d in cat["datasets"] if "levels" not in d["tags"]]
+    families = [d for d in cat["datasets"] if "levels" in d["tags"]]
+    assert len(levels) == len(groups) > 0
+    urls = {d["url"] for d in levels}
     assert urls == {f"icechunk+{AIS_STORE}/{g}" for g in groups}
+    # every family with several resolutions is one more entry, pointing at the family group
+    parents = {g.rpartition("/")[0] for g in groups if g.rsplit("/", 1)[1].endswith("m")}
+    assert {d["url"] for d in families} <= {f"icechunk+{AIS_STORE}/{p}" for p in parents}
+    assert all(int(d["tags"]["levels"]) >= 2 for d in families)
     for d in cat["datasets"]:
         assert d["tags"]["region"] == region
         assert all(isinstance(v, str) for v in d["tags"].values())
@@ -53,7 +59,7 @@ def test_one_entry_per_group(index_df, region):
 def test_known_group(index_df):
     cat = build_catalog(index_df, region="AIS", store_url=AIS_STORE + "/")
     by_url = {d["url"]: d for d in cat["datasets"]}
-    d = by_url[f"icechunk+{AIS_STORE}/CESM2-WACCM/ssp585/SDBN1-2000m"]
+    d = by_url[f"icechunk+{AIS_STORE}/CESM2-WACCM/ssp585/SDBN1/2000m"]
     assert d["title"] == "CESM2-WACCM ssp585 SDBN1 2 km"
     assert d["tags"] == {
         "region": "AIS",
@@ -68,7 +74,7 @@ def test_known_group(index_df):
     assert "acabf, acabf-anomaly" in d["description"]
     assert "3146 files" in d["description"]
 
-    ocean = by_url[f"icechunk+{AIS_STORE}/CESM2-WACCM/ssp585/ocean"]
+    ocean = by_url[f"icechunk+{AIS_STORE}/CESM2-WACCM/ssp585/ocean/8000m"]
     assert ocean["tags"]["resolution"] == "8 km"
     assert ocean["tags"]["kind"] == "multiyear"
     assert ocean["params"]["varname"] == "tf"
@@ -128,4 +134,19 @@ def test_cli_from_index_and_listing(index_df, tmp_path):
     assert rc == 0
     cat2 = json.loads(out2.read_text())
     assert cat2["title"] == "GrIS"
-    assert len(cat2["datasets"]) == len(_expected_groups(index_df, "GrIS"))
+    assert len([d for d in cat2["datasets"] if "levels" not in d["tags"]]) == len(
+        _expected_groups(index_df, "GrIS")
+    )
+
+
+def test_family_entry_lists_its_levels(index_df):
+    cat = build_catalog(index_df, region="AIS", store_url=AIS_STORE)
+    by_url = {d["url"]: d for d in cat["datasets"]}
+    fam = by_url[f"icechunk+{AIS_STORE}/CESM2-WACCM/ssp585/SDBN1"]
+    assert fam["title"] == "CESM2-WACCM ssp585 SDBN1 (2 km + 8 km)"
+    assert fam["tags"]["resolution"] == "2 km + 8 km" and fam["tags"]["levels"] == "2"
+    assert (
+        fam["params"]["varname"]
+        == by_url[f"icechunk+{AIS_STORE}/CESM2-WACCM/ssp585/SDBN1/2000m"]["params"]["varname"]
+    )
+    assert f"icechunk+{AIS_STORE}/ACCESS-CM2/historical/dEBM2" not in by_url  # one level only

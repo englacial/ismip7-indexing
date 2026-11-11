@@ -433,13 +433,40 @@ class ForcingFile(BaseModel):
         return None
 
     @property
-    def group_path(self) -> str | None:
-        """Where this file's data lands in the Icechunk store: ``<source>/<experiment>/<product>``."""
+    def _store_base(self) -> str:
+        base = f"{self.source}/{self.experiment}"
+        if self.kind in (ForcingKind.CLIMATOLOGY, ForcingKind.BIAS):
+            return f"{self.kind.value}/{base}"
+        return base
+
+    @property
+    def family_path(self) -> str | None:
+        """The store group holding every resolution of this product:
+        ``<source>/<experiment>/<product_model>`` (``climatology/`` or ``bias/`` first for those
+        kinds). ``None`` for a file without a product."""
         if self.product is None:
             return None
-        if self.kind in (ForcingKind.CLIMATOLOGY, ForcingKind.BIAS):
-            return f"{self.kind.value}/{self.source}/{self.experiment}/{self.product}"
-        return f"{self.source}/{self.experiment}/{self.product}"
+        return f"{self._store_base}/{self.product_model}"
+
+    @property
+    def group_path(self) -> str | None:
+        """Where this file's data lands in the Icechunk store.
+
+        ``<source>/<experiment>/<product_model>/<resolution>m``, e.g.
+        ``CESM2-WACCM/ssp585/SDBN1/2000m`` next to ``.../SDBN1/8000m``: the
+        resolutions of a product are children of one *family* group, which
+        carries a ``multiscales`` attribute (:func:`~.store.annotate_multiscales`)
+        so a viewer can treat them as one pyramid. A product without a
+        resolution in its name (AIS ``ocean``, 8 km) still gets the level
+        segment from :attr:`resolution_m`; one without any known resolution
+        keeps its product name as the leaf.
+        """
+        if self.product is None:
+            return None
+        res = self.resolution_m
+        if res is None:
+            return f"{self._store_base}/{self.product}"
+        return f"{self.family_path}/{res}m"
 
     @property
     def is_monthly_year(self) -> bool:

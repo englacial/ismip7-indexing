@@ -16,8 +16,8 @@ from tests.conftest import AIS_KEY_FMT, write_forcing_file
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
-HIST = "CESM2-WACCM/historical/SDBN1-32000m"
-SSP = "CESM2-WACCM/ssp585/SDBN1-32000m"
+HIST = "CESM2-WACCM/historical/SDBN1/32000m"
+SSP = "CESM2-WACCM/ssp585/SDBN1/32000m"
 
 
 def _key(exp, year, var="acabf"):

@@ -9,7 +9,7 @@ Usage::
 
     # local: run the same handler in this process against a local repo, reading
     # the source files from a local mirror of the bucket keys
-    ismip7-fanout --index index.parquet --region AIS --groups CESM2-WACCM/historical/SDBN1-8000m \\
+    ismip7-fanout --index index.parquet --region AIS --groups CESM2-WACCM/historical/SDBN1/8000m \\
         --target local:/tmp/icechunk-ais --local --report run.json
 
 Each group is one event (see ``lambda_handler``). Before any worker runs,

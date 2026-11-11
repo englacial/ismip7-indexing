@@ -818,7 +818,11 @@ def test_one_step_stand_in_file_is_spread_over_its_year(synthetic_root, local_ta
 
     repo = open_repository(local_target, create=True)
     wr = write_group(repo, result)
-    stored = open_group(repo, wr.group_path)["acabf"]
+    group = open_group(repo, wr.group_path)
+    assert [n for n in group.attrs["ismip7_notes"] if "standing in" in n] == [
+        n for n in result.notes if "standing in" in n
+    ]
+    stored = group["acabf"]
     with xr.open_dataset(paths[keys[-1]]) as src:
         for t in (24, 30, 35):
             np.testing.assert_array_equal(stored.isel(time=t).values, src["acabf"].values[0])

@@ -48,6 +48,10 @@ MANIFEST_SPLIT_CHUNKS = 120
 VERIFIED_ATTR = "ismip7_verified"
 #: Group attribute: :func:`sources_sha256` of the files the group was built from.
 SOURCES_ATTR = "ismip7_sources_sha256"
+#: Group attribute holding the normalisation notes (what was aligned, padded,
+#: re-labelled, stored natively or spread), capped at NOTES_ATTR_MAX entries.
+NOTES_ATTR = "ismip7_notes"
+NOTES_ATTR_MAX = 2000
 #: Root attribute: the region a repository holds.
 REGION_ATTR = "ismip7_region"
 
@@ -553,6 +557,11 @@ def write_group(
     digest = sources_sha256(result.sources) if result.sources else None
     if digest:
         ds.attrs[SOURCES_ATTR] = digest
+    if result.notes:
+        notes = list(result.notes[:NOTES_ATTR_MAX])
+        if len(result.notes) > NOTES_ATTR_MAX:
+            notes.append(f"... {len(result.notes) - NOTES_ATTR_MAX} more notes in the run report")
+        ds.attrs[NOTES_ATTR] = notes
     operation = "overwrite" if overwrite else "write"
     msg = message or f"{'rewrite' if overwrite else 'write'} {gp} ({result.n_files} files)"
     meta = {
@@ -989,6 +998,7 @@ def verify_group(
 __all__ = [
     "MANIFEST_SPLIT_CHUNKS",
     "REGION_ATTR",
+    "NOTES_ATTR",
     "SOURCES_ATTR",
     "SOURCE_CONTAINER_PREFIX",
     "VERIFIED_ATTR",

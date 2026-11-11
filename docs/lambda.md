@@ -239,6 +239,17 @@ ismip7-fanout --index index.parquet --region AIS --function ismip7-virtualize --
 # function's reserved concurrency (250) would allow a whole region at once
 ```
 
+**Re-index before every pass.** The source files change under the store: on
+2026-11-06 the provider replaced the 2300 files of four temperature variables
+in the MRI-ESM2-0 ssp585 products with one-step files, after two of those
+groups had been verified, and the stored references into the old bytes went
+stale without any error. The index records each file's size and every group
+records a digest of its keys and sizes (`ismip7_sources_sha256`), so a fan-out
+run from a fresh index rewrites exactly the groups whose files changed
+(`reason: "sources changed"` in the report) and skips the rest. Run
+`ismip7-index` first, diff it against the previous index if you want to see
+what moved, then fan out.
+
 The report defaults to `run-<region>-<UTC time>.json`, so a re-run does not
 overwrite the previous one. `--aws-region` is the Lambda function's region and
 `--target-region` the target bucket's (both default `us-west-2`). A `local:`

@@ -52,6 +52,12 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Default catalog
         run: cp site/catalog.json site/catalog-ais.json site/catalog-gris.json viewer/public/static/
+      - name: Deployment defaults
+        # Data Picker (the hover value readout) on by default. gridlook keeps
+        # this in its store with no URL parameter, so it is set at build time.
+        run: |
+          test "$(grep -c 'hoverEnabled: false,' viewer/src/store/store.ts)" = 1
+          sed -i 's/hoverEnabled: false,/hoverEnabled: true,/' viewer/src/store/store.ts
       - name: Build
         working-directory: viewer
         run: npm run build

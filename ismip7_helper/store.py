@@ -997,8 +997,8 @@ def verify_group(
 
 __all__ = [
     "MANIFEST_SPLIT_CHUNKS",
-    "REGION_ATTR",
     "NOTES_ATTR",
+    "REGION_ATTR",
     "SOURCES_ATTR",
     "SOURCE_CONTAINER_PREFIX",
     "VERIFIED_ATTR",

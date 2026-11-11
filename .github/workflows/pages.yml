@@ -1,0 +1,67 @@
+# Publish the ISMIP7 viewer: gridlook (the multi-resolution branch of
+# espg/gridlook, pinned below) built with this repository's catalogs as its
+# default catalog, deployed to this repository's GitHub Pages. No fork of
+# gridlook is involved; its own deployment is untouched.
+#
+# The catalogs in site/ are generated from the index by `ismip7-catalog`
+# (see docs/lambda.md, "Catalog") and committed, so this workflow needs no
+# bucket access.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  GRIDLOOK_REPO: espg/gridlook
+  GRIDLOOK_REF: 0e7c178d1b2387f5b69edcac8aeaa0e1c94e16e2 # upstream/levels-lod, 2026-11-10
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.GRIDLOOK_REPO }}
+          ref: ${{ env.GRIDLOOK_REF }}
+          path: viewer
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: viewer/package-lock.json
+      - name: Install
+        working-directory: viewer
+        run: npm ci --no-audit --no-fund
+      - name: Default catalog
+        run: cp site/catalog.json site/catalog-ais.json site/catalog-gris.json viewer/public/static/
+      - name: Build
+        working-directory: viewer
+        run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: viewer/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -776,3 +776,50 @@ def test_listed_missing_value_masks_the_odd_file_s_fill_on_read(synthetic_root, 
     assert np.isnan(stored.isel(time=24).values[0, 0])  # the 9.97e36 cell decodes as NaN
     assert not np.isnan(stored.isel(time=24).values[1, 1])
     assert verify_group(repo, result, n_files=3, seed=0).ok
+
+
+def test_one_step_stand_in_file_is_spread_over_its_year(synthetic_root, local_target):
+    """MRI-ESM2-0 ssp585 2300: one annual step referenced by all twelve months, nothing copied."""
+    import xarray as xr
+
+    keys = _keys(years=(1850, 1851, 1852), variables=("acabf",))
+    urls, paths = {}, {}
+    for i, k in enumerate(keys):
+        p = synthetic_root / k
+        last = k.endswith("1852.nc")
+        write_forcing_file(
+            p, year=int(k[-7:-3]), variable="acabf", seed=i, n_time=1 if last else 12
+        )
+        if last:
+            import netCDF4
+
+            with netCDF4.Dataset(p, "a") as nc:
+                nc.comment = "Prepared for ISMIP7\nYear 1852 computed as average of years 1842-1851"
+        urls[k], paths[k] = f"file://{p}", p
+    result = concat_group([parse_key(k).forcing for k in keys], local_registry(), urls=urls)
+    a = result.ds["acabf"]
+    assert a.shape[0] == 36 and len(result.ds["time"]) == 36
+    assert [n for n in result.notes if "standing in" in n] == [
+        "acabf: acabf_AIS_CESM2-WACCM_historical_SDBN1-32000m_v2_1852.nc: one step standing in "
+        "for 1852 (Year 1852 computed as average of years 1842-1851); its chunks are referenced "
+        "by all 12 monthly steps of that year, which reads flat"
+    ]
+    assert "comment" not in result.ds.attrs
+    entries = a.data.manifest.dict()
+    assert (
+        len({(entries[f"{t}.0.0"]["offset"], entries[f"{t}.0.0"]["length"]) for t in range(24, 36)})
+        == 1
+    )
+    # the stamps continue the monthly series: mid-month 1852
+    import cftime
+
+    dates = cftime.num2date(result.ds["time"].values[24:], "days since 1850-01-01", "standard")
+    assert [(d.year, d.month, d.day) for d in dates] == [(1852, m, 15) for m in range(1, 13)]
+
+    repo = open_repository(local_target, create=True)
+    wr = write_group(repo, result)
+    stored = open_group(repo, wr.group_path)["acabf"]
+    with xr.open_dataset(paths[keys[-1]]) as src:
+        for t in (24, 30, 35):
+            np.testing.assert_array_equal(stored.isel(time=t).values, src["acabf"].values[0])
+    assert verify_group(repo, result, n_files=3, seed=0).ok

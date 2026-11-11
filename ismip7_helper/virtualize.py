@@ -562,6 +562,104 @@ def _majority(values: list, dtype) -> tuple[int, int]:
     return i, counts[i]
 
 
+def _spread_annual_stand_ins(label: str, items: list[OpenedFile], var: str) -> list[str]:
+    """Spread a one-step file that stands in for a year over the series' months.
+
+    MRI-ESM2-0 ssp585 ends its temperature fields with a 2300 file of one
+    step, "Year 2300 computed as average of years 2290-2299", where every
+    other file of the monthly series has twelve. Rather than drop the year
+    or copy anything, the file's single row of chunks is referenced by all
+    twelve monthly chunk keys of that year, so the year reads flat and the
+    note says so. The stamps are the neighbouring file's months moved to
+    that year. Only monthly series are handled; anything else is left for
+    the time-axis check to reject.
+    """
+    import calendar
+    from dataclasses import replace
+
+    import cftime
+    from virtualizarr.manifests import ChunkManifest, ManifestArray
+
+    notes: list[str] = []
+    if len(items) < 2:
+        return notes
+
+    def span(o: OpenedFile) -> int:
+        y0 = o.forcing.year_start
+        return 0 if y0 is None else (o.forcing.year_end or y0) - y0 + 1
+
+    rates = [int(o.ds[var].shape[0]) / span(o) for o in items if span(o) > 0]
+    if not rates or max(set(rates), key=rates.count) != 12:
+        return notes
+    for i, o in enumerate(items):
+        if span(o) != 1 or int(o.ds[var].shape[0]) != 1:
+            continue
+        name = os.path.basename(o.forcing.key)
+        marr = o.ds[var].data
+        if not isinstance(marr, ManifestArray) or int(marr.metadata.chunks[0]) != 1:
+            raise VirtualizeError(
+                f"{label}: {name} has one step and cannot be spread over the year"
+            )
+        sibling = items[i - 1] if i else items[i + 1]
+        sib_time = np.asarray(sibling.ds["time"].values, dtype=np.float64)
+        if sib_time.shape != (12,):
+            raise VirtualizeError(f"{label}: {name} has one step and its neighbour is not monthly")
+        others = [v for v in o.ds.variables if v not in (var, "time") and "time" in o.ds[v].dims]
+        if others:
+            raise VirtualizeError(f"{label}: {name} has one step; cannot spread {others} with it")
+        year = int(o.forcing.year_start)  # type: ignore[arg-type]
+        stamps = np.asarray(
+            cftime.date2num(
+                [
+                    cftime.DatetimeGregorian(
+                        year,
+                        d.month,
+                        min(d.day, calendar.monthrange(year, d.month)[1]),
+                        d.hour,
+                        d.minute,
+                        d.second,
+                    )
+                    for d in cftime.num2date(sib_time, SUBMISSION_TIME_UNITS, SUBMISSION_CALENDAR)
+                ],
+                SUBMISSION_TIME_UNITS,
+                SUBMISSION_CALENDAR,
+            ),
+            dtype=np.float64,
+        )
+        grid = (12, *marr.manifest.shape_chunk_grid[1:])
+        paths = np.full(grid, "", dtype=np.dtypes.StringDType())
+        offsets = np.zeros(grid, dtype=np.uint64)
+        lengths = np.zeros(grid, dtype=np.uint64)
+        for key, e in marr.manifest.dict().items():
+            rest = tuple(int(k) for k in key.split("."))[1:]
+            for m in range(12):
+                paths[(m, *rest)] = e["path"]
+                offsets[(m, *rest)] = e["offset"]
+                lengths[(m, *rest)] = e["length"]
+        spread = ManifestArray(
+            metadata=replace(marr.metadata, shape=(12, *marr.shape[1:])),
+            chunkmanifest=ChunkManifest.from_arrays(paths=paths, offsets=offsets, lengths=lengths),
+        )
+        old_var, old_time = o.ds[var], o.ds["time"]
+        ds = o.ds.drop_vars([var, "time"])
+        ds = ds.assign({var: xr.Variable(old_var.dims, spread, attrs=dict(old_var.attrs))})
+        ds = ds.assign_coords(
+            time=xr.Variable(
+                ("time",), stamps, attrs=dict(old_time.attrs), encoding=dict(old_time.encoding)
+            )
+        )
+        comment = ds.attrs.pop("comment", None)
+        o.ds = ds
+        why = (
+            f" ({comment.splitlines()[-1].strip()})" if isinstance(comment, str) and comment else ""
+        )
+        notes.append(
+            f"{var}: {name}: one step standing in for {year}{why}; its chunks are referenced "
+            f"by all 12 monthly steps of that year, which reads flat"
+        )
+    return notes
+
+
 def _unify_fill_values(label: str, items: list[OpenedFile], var: str) -> list[str]:
     """Give the series one fill value; list a file's different one as ``missing_value``.
 
@@ -798,7 +896,8 @@ def _concat_variable(
             raise VirtualizeError(f"{label}: gap between files {a0}-{a1} and {b0}-{b1}")
     if len(items) == 1:
         return items[0].ds, [], []
-    notes = _unify_fill_values(label, items, var)
+    notes = _spread_annual_stand_ins(label, items, var)
+    notes.extend(_unify_fill_values(label, items, var))
     notes.extend(_normalize_codecs(label, items, var))
     tails, tail_notes = _placeholder_tails(label, items, var)
     notes.extend(tail_notes)

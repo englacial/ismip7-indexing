@@ -15,7 +15,7 @@ WORK=${1:?workdir prepared by rie_smoke.py}
 PLATFORM=${PLATFORM:-linux/amd64}
 CLI=${CONTAINER_CLI:-docker}
 cd "$(dirname "$0")/../.."
-uv export --extra lambda --no-emit-project --no-hashes --no-dev -o requirements-lambda.txt
+uv export --frozen --extra lambda --no-emit-project --no-hashes --no-dev -o requirements-lambda.txt
 if [ "$CLI" = podman ]; then
   podman build --platform "$PLATFORM" --format docker --build-arg GIT_SHA="$(git rev-parse HEAD)" \
       -f Dockerfile.lambda -t ismip7-virtualize:rie .

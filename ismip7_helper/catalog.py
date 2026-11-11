@@ -218,11 +218,10 @@ def _family_entries(datasets: list[dict[str, Any]], store_url: str) -> list[dict
         levels.sort(key=lambda d: int(d["url"].rsplit("/", 1)[1][:-1]))
         first = levels[0]
         resolutions = [d["tags"].get("resolution", "") for d in levels]
-        title = (
-            re.sub(r" \S+ (k?m)$", "", first["title"])
-            if first["tags"].get("resolution")
-            else first["title"]
-        )
+        t = first["tags"]
+        title = " ".join(x for x in (t["source"], t["experiment"], t["product"]) if x)
+        if t.get("kind") == "climatology":
+            title += " (climatology)"
         out.append(
             {
                 "title": f"{title} ({' + '.join(resolutions)})",

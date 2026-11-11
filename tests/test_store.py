@@ -31,7 +31,7 @@ from ismip7_helper.store import (
     verify_group,
     write_group,
 )
-from ismip7_helper.virtualize import concat_group, key_to_url, local_registry
+from ismip7_helper.virtualize import VirtualizeError, concat_group, key_to_url, local_registry
 from tests.conftest import AIS_KEY_FMT, NC_FILL, write_forcing_file
 
 pytestmark = [
@@ -709,7 +709,8 @@ def test_native_tail_round_trip(synthetic_root, local_target):
         assert np.isnan(stored.isel(time=24).values[0, 0])  # the fill cell decodes as NaN
     with xr.open_dataset(paths[keys[0]]) as head:
         np.testing.assert_array_equal(stored.isel(time=slice(0, 12)).values, head["acabf"].values)
-    assert verify_group(repo, result, n_files=3, seed=0).ok
+    vr = verify_group(repo, result, n_files=3, seed=0)
+    assert vr.ok and ("acabf", urls[keys[-1]]) in vr.checked  # the native tail is compared too
 
 
 def test_native_chunks_for_a_file_in_the_middle_of_its_series(synthetic_root, local_target):
@@ -854,7 +855,7 @@ def test_family_levels_and_multiscales_attrs():
     ]
     assert [ax["name"] for ax in ms["axes"]] == ["time", "y", "x"] and ms["axes"][1][
         "unit"
-    ] == "metre"
+    ] == "meter"
     assert a["ismip7_family"] == "SDBN1" and a["ismip7_resolutions_m"] == [2000, 8000]
     o = multiscales_attrs("A/x/ocean", fams["A/x/ocean"], dims=("time", "z", "y", "x"))
     assert o["multiscales"][0]["datasets"][0]["coordinateTransformations"][0]["scale"] == [
@@ -889,3 +890,39 @@ def test_annotate_multiscales_writes_the_family_group(synthetic_root, local_targ
     assert g.attrs["ismip7_resolutions_m"] == [8000, 32000]
     assert annotate_multiscales(repo) == (None, fams)  # idempotent
     assert annotate_multiscales(repo, dry_run=True)[0] is None
+
+
+def test_one_step_file_without_stand_in_evidence_is_refused(synthetic_root):
+    keys = _keys(years=(1850, 1851, 1852), variables=("acabf",))
+    urls = {}
+    for i, k in enumerate(keys):
+        p = synthetic_root / k
+        write_forcing_file(
+            p,
+            year=int(k[-7:-3]),
+            variable="acabf",
+            seed=i,
+            n_time=1 if k.endswith("1852.nc") else 12,
+        )
+        urls[k] = f"file://{p}"
+    with pytest.raises(VirtualizeError, match="does not say it stands in"):
+        concat_group([parse_key(k).forcing for k in keys], local_registry(), urls=urls)
+
+
+def test_a_short_file_is_refused_even_when_short_files_are_the_majority(synthetic_root):
+    keys = _keys(years=(1850, 1851, 1852), variables=("acabf",))
+    urls = {}
+    for i, k in enumerate(keys):
+        p = synthetic_root / k
+        write_forcing_file(
+            p,
+            year=int(k[-7:-3]),
+            variable="acabf",
+            seed=i,
+            n_time=12 if k.endswith("1850.nc") else 1,
+        )
+        urls[k] = f"file://{p}"
+    with pytest.raises(
+        VirtualizeError, match=r"has 12 step\(s\) for 1 year\(s\) where the series has 1 a year"
+    ):
+        concat_group([parse_key(k).forcing for k in keys], local_registry(), urls=urls)

@@ -33,6 +33,7 @@ import functools
 import logging
 import os
 import pickle
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -562,6 +563,45 @@ def _majority(values: list, dtype) -> tuple[int, int]:
     return i, counts[i]
 
 
+#: What a one-step file must say to be spread over its year (the provider's
+#: wording: "Year 2300 computed as average of years 2290-2299").
+STAND_IN_RE = re.compile(r"average of years", re.IGNORECASE)
+
+
+def _check_steps_per_file(label: str, items: list[OpenedFile], var: str) -> None:
+    """Every file must hold its share of the series' steps per year.
+
+    The steps per year are the most common rate over the files (12 for
+    monthly, 1 for annual, 0.4 for a 30-year climatology of 12 months). A
+    file with fewer or more steps than ``rate x years`` is truncated or
+    mislabelled and is refused here rather than silently shortening the
+    axis; only the last file may be short (a year that ends early). A
+    stand-in year has already been spread by then.
+    """
+    spans = []
+    for o in items:
+        y0 = o.forcing.year_start
+        if y0 is None:
+            continue
+        n = (o.forcing.year_end or y0) - y0 + 1
+        if n > 0:
+            spans.append((o, n))
+    if len(spans) < 2:
+        return
+    rates = [int(o.ds[var].shape[0]) / n for o, n in spans]
+    # the most common rate; on a tie the larger one (a short last file must not win)
+    rate = max(set(rates), key=lambda r: (rates.count(r), r))
+    for o, n in spans:
+        steps, expected = int(o.ds[var].shape[0]), round(rate * n)
+        # the last file may end inside its year (the two-month 2026 EN4 file)
+        short_tail = o is spans[-1][0] and 0 < steps < expected
+        if steps != expected and not short_tail:
+            raise VirtualizeError(
+                f"{label}: {os.path.basename(o.forcing.key)} has {steps} step(s) for {n} year(s) "
+                f"where the series has {rate:g} a year ({expected} expected)"
+            )
+
+
 def _spread_annual_stand_ins(label: str, items: list[OpenedFile], var: str) -> list[str]:
     """Spread a one-step file that stands in for a year over the series' months.
 
@@ -595,6 +635,12 @@ def _spread_annual_stand_ins(label: str, items: list[OpenedFile], var: str) -> l
         if span(o) != 1 or int(o.ds[var].shape[0]) != 1:
             continue
         name = os.path.basename(o.forcing.key)
+        comment = o.ds.attrs.get("comment")
+        if not (isinstance(comment, str) and STAND_IN_RE.search(comment)):
+            raise VirtualizeError(
+                f"{label}: {name} has one step where the series has twelve a year and does not "
+                f"say it stands in for the year (no 'average of years' comment); refusing to spread it"
+            )
         marr = o.ds[var].data
         if not isinstance(marr, ManifestArray) or int(marr.metadata.chunks[0]) != 1:
             raise VirtualizeError(
@@ -648,11 +694,9 @@ def _spread_annual_stand_ins(label: str, items: list[OpenedFile], var: str) -> l
                 ("time",), stamps, attrs=dict(old_time.attrs), encoding=dict(old_time.encoding)
             )
         )
-        comment = ds.attrs.pop("comment", None)
+        ds.attrs.pop("comment", None)
         o.ds = ds
-        why = (
-            f" ({comment.splitlines()[-1].strip()})" if isinstance(comment, str) and comment else ""
-        )
+        why = f" ({comment.splitlines()[-1].strip()})"
         notes.append(
             f"{var}: {name}: one step standing in for {year}{why}; its chunks are referenced "
             f"by all 12 monthly steps of that year, which reads flat"
@@ -897,6 +941,7 @@ def _concat_variable(
     if len(items) == 1:
         return items[0].ds, [], []
     notes = _spread_annual_stand_ins(label, items, var)
+    _check_steps_per_file(label, items, var)
     notes.extend(_unify_fill_values(label, items, var))
     notes.extend(_normalize_codecs(label, items, var))
     tails, tail_notes = _placeholder_tails(label, items, var)
@@ -1200,7 +1245,7 @@ def _pad_to_axis(
         per_var[var] = padded.assign_coords(time=("time", np.asarray(long), time_attrs))
         notes.append(
             f"{var}: {k} missing step(s) at the end of its time axis "
-            f"({', '.join(map(str, missing_years))}); padded, read as the fill value"
+            f"({', '.join(map(str, missing_years))}); padded with missing chunks, which read as the array's fill value (NaN only where the CF _FillValue says so)"
         )
     return notes
 

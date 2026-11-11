@@ -710,13 +710,13 @@ def multiscales_attrs(
     """The family group's attributes: OME-NGFF 0.4 ``multiscales`` over its resolution children.
 
     ``dims`` are the dimensions of the family's data arrays (``time, y, x`` or
-    ``time, z, y, x``); ``y`` and ``x`` carry the metre unit and the scale, so a
+    ``time, z, y, x``); ``y`` and ``x`` carry the ``meter`` unit (OME-NGFF 0.4's spelling) and the scale, so a
     viewer reads the ground resolution without opening a level.
     """
     axes = []
     for d in dims:
         if d in ("y", "x"):
-            axes.append({"name": d, "type": "space", "unit": "metre"})
+            axes.append({"name": d, "type": "space", "unit": "meter"})
         elif d == "time":
             axes.append({"name": d, "type": "time"})
         else:
@@ -1076,6 +1076,9 @@ def verify_group(
         if not hasattr(marr, "manifest"):
             continue
         files = _file_offsets(marr)
+        # steps stored natively (a file chunked unlike its series) have no
+        # manifest path; their source file and first index come from the result
+        files.extend((t.url, t.start) for t in result.native_tails if t.var == var)
         if not files:
             mismatches.append(f"{var}: no source files in the manifest")
             continue

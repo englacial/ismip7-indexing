@@ -33,7 +33,7 @@ CLI=${CONTAINER_CLI:-$(command -v docker >/dev/null 2>&1 && echo docker || echo 
 
 build_and_push() {
   # the image installs its dependencies from the lock file, in a layer of their own
-  uv export --extra lambda --no-emit-project --no-hashes --no-dev -o requirements-lambda.txt
+  uv export --frozen --extra lambda --no-emit-project --no-hashes --no-dev -o requirements-lambda.txt
   aws ecr get-login-password --region "$REGION" | "$CLI" login --username AWS --password-stdin "$ECR"
   if [[ "$CLI" == podman ]]; then
     # Lambda needs a Docker v2 single-image manifest: build in docker format (not OCI).

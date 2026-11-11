@@ -667,7 +667,7 @@ def test_concat_group_pads_a_short_annual_series(synthetic_root, local_registry)
     assert (
         manifest.shape_chunk_grid[0] == 2 and "1.0.0" not in manifest.dict()
     )  # the pad has no source
-    note = "dmrrodz: 1 missing step(s) at the end of its time axis (1851); padded, read as the fill value"
+    note = "dmrrodz: 1 missing step(s) at the end of its time axis (1851); padded with missing chunks, which read as the array's fill value (NaN only where the CF _FillValue says so)"
     assert note in ds.attrs["ismip7_time_axis_notes"] and note in g.notes
     assert ds.attrs["ismip7_time_axes"] == ["time: acabf", "time_annual: dacabfdz, dmrrodz"]
 

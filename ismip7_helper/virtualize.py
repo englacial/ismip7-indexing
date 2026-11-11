@@ -538,24 +538,122 @@ def _uniform_or_list(pairs: list[tuple[str, str]]) -> str | list[str]:
     return [f"{label}: {v}" for label, v in pairs]
 
 
-def _check_fill_values(label: str, items: list[OpenedFile], var: str) -> None:
-    ref = items[0].ds[var]
-    ref_fill = _array_fill_value(ref)
-    ref_mv = ref.attrs.get("missing_value")
-    for o in items[1:]:
-        v = o.ds[var]
-        fill = _array_fill_value(v)
-        if not _same_value(fill, ref_fill, ref.dtype):
+#: A file's own fill value is listed as ``missing_value`` only when it cannot be
+#: data: at least this large in magnitude (the netCDF default, 9.97e36, is).
+MIN_LISTABLE_FILL = 1e30
+
+
+def _decoded_fill_attr(v: xr.DataArray):
+    """The CF ``_FillValue`` attribute as a number (VirtualiZarr keeps it base64)."""
+    raw = v.attrs.get("_FillValue")
+    if raw is None:
+        return None
+    if isinstance(raw, str | bytes):
+        from xarray.backends.zarr import FillValueCoder
+
+        return FillValueCoder.decode(raw, v.dtype)
+    return raw
+
+
+def _majority(values: list, dtype) -> tuple[int, int]:
+    """Index of the most common value (NaN-aware, earliest on a tie) and its count."""
+    counts = [sum(_same_value(v, w, dtype) for w in values) for v in values]
+    i = max(range(len(values)), key=lambda i: (counts[i], -i))
+    return i, counts[i]
+
+
+def _unify_fill_values(label: str, items: list[OpenedFile], var: str) -> list[str]:
+    """Give the series one fill value; list a file's different one as ``missing_value``.
+
+    Two fill values can differ between the files of a series. The Zarr fill
+    value (HDF5's storage fill, what a missing chunk reads as): the series
+    takes the most common one, and a file with another is accepted when every
+    one of its chunks is present, since nothing then reads as its fill. The
+    CF ``_FillValue`` attribute (what xarray masks to NaN): the series keeps
+    the most common one and a file's different value is listed in
+    ``missing_value``, which xarray masks as well (NaN needs no listing).
+    A minority value small enough to be data (:data:`MIN_LISTABLE_FILL`) is
+    refused rather than masked. The real archive switches between NaN and
+    the netCDF default 9.97e36 in single files (GrIS ``sgd`` and ``tf``) and
+    between storage fills 0 and 9.97e36 (``tas-anomaly``).
+    """
+    from dataclasses import replace
+
+    from virtualizarr.manifests import ManifestArray
+
+    notes: list[str] = []
+    dtype = items[0].ds[var].dtype
+    names = [os.path.basename(o.forcing.key) for o in items]
+
+    fills = [_array_fill_value(o.ds[var]) for o in items]
+    ref_i, _ = _majority(fills, dtype)
+    ref_fill = fills[ref_i]
+    for o, name, fill in zip(items, names, fills, strict=True):
+        if _same_value(fill, ref_fill, dtype):
+            continue
+        marr = o.ds[var].data
+        if not isinstance(marr, ManifestArray):
+            raise VirtualizeError(f"{label}: fill value {fill} in {name} differs from {ref_fill}")
+        if any(not e["path"] for e in marr.manifest.dict().values()):
             raise VirtualizeError(
-                f"{label}: fill value {fill} in {os.path.basename(o.forcing.key)} differs from "
-                f"{ref_fill} in {os.path.basename(items[0].forcing.key)}"
+                f"{label}: fill value {fill} in {name} differs from {ref_fill} in "
+                f"{names[ref_i]} and the file has missing chunks that would read as it"
             )
-        mv = v.attrs.get("missing_value")
-        if not _same_value(mv, ref_mv, ref.dtype):
+        ds = o.ds.copy()
+        ds[var] = ds[var].copy(
+            data=ManifestArray(
+                metadata=replace(marr.metadata, fill_value=ref_fill), chunkmanifest=marr.manifest
+            )
+        )
+        o.ds = ds
+        notes.append(
+            f"{var}: {name}: storage fill value {fill} where the series uses {ref_fill}; "
+            f"every chunk is present, so nothing reads as it"
+        )
+
+    attrs = [_decoded_fill_attr(o.ds[var]) for o in items]
+    ref_i, _ = _majority(attrs, dtype)
+    ref_attr = attrs[ref_i]
+    listed: list[float] = []
+    declared = [
+        {float(m) for m in np.atleast_1d(np.asarray(o.ds[var].attrs.get("missing_value", [])))}
+        for o in items
+    ]
+    for name, mvs in zip(names, declared, strict=True):
+        for m in mvs:
+            if all(m in d for d in declared) or abs(m) >= MIN_LISTABLE_FILL:
+                listed.append(m)
+            else:
+                raise VirtualizeError(
+                    f"{label}: missing_value {m} in {name} is not declared by every file; "
+                    f"a value that small could be data, so it is not masked"
+                )
+    for name, value in zip(names, attrs, strict=True):
+        if value is None or _same_value(value, ref_attr, dtype) or np.isnan(float(value)):
+            continue
+        if abs(float(value)) < MIN_LISTABLE_FILL:
             raise VirtualizeError(
-                f"{label}: missing_value {mv} in {os.path.basename(o.forcing.key)} differs from "
-                f"{ref_mv} in {os.path.basename(items[0].forcing.key)}"
+                f"{label}: _FillValue {value} in {name} differs from {ref_attr} in "
+                f"{names[ref_i]}; a value that small could be data, so it is not masked"
             )
+        listed.append(float(value))
+        notes.append(
+            f"{var}: {name}: _FillValue {value} where the series uses {ref_attr}; "
+            f"listed as missing_value, which xarray masks too"
+        )
+    listed = sorted({m for m in listed if not np.isnan(m) and not _same_value(m, ref_attr, dtype)})
+    ref_raw = items[ref_i].ds[var].attrs.get("_FillValue")
+    for o in items:
+        a = o.ds[var].attrs
+        if ref_raw is None:
+            a.pop("_FillValue", None)
+        else:
+            a["_FillValue"] = ref_raw
+        if listed:
+            a["missing_value"] = listed[0] if len(listed) == 1 else listed
+        else:
+            a.pop("missing_value", None)
+    return notes
 
 
 def _codec_dicts(codecs, *, drop_level: bool) -> list[dict]:
@@ -700,8 +798,8 @@ def _concat_variable(
             raise VirtualizeError(f"{label}: gap between files {a0}-{a1} and {b0}-{b1}")
     if len(items) == 1:
         return items[0].ds, [], []
-    _check_fill_values(label, items, var)
-    notes = _normalize_codecs(label, items, var)
+    notes = _unify_fill_values(label, items, var)
+    notes.extend(_normalize_codecs(label, items, var))
     tails, tail_notes = _placeholder_tails(label, items, var)
     notes.extend(tail_notes)
     try:

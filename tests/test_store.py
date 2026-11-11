@@ -32,7 +32,7 @@ from ismip7_helper.store import (
     write_group,
 )
 from ismip7_helper.virtualize import concat_group, key_to_url, local_registry
-from tests.conftest import AIS_KEY_FMT, write_forcing_file
+from tests.conftest import AIS_KEY_FMT, NC_FILL, write_forcing_file
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore::DeprecationWarning"),
@@ -748,4 +748,31 @@ def test_native_chunks_for_a_file_in_the_middle_of_its_series(synthetic_root, lo
             np.testing.assert_array_equal(
                 stored.isel(time=slice(12 * i, 12 * i + 12)).values, src["acabf"].values
             )
+    assert verify_group(repo, result, n_files=3, seed=0).ok
+
+
+def test_listed_missing_value_masks_the_odd_file_s_fill_on_read(synthetic_root, local_target):
+    """A file filled with 9.97e36 in a NaN-filled series reads back masked, and verifies."""
+
+    keys = _keys(years=(1850, 1851, 1852), variables=("acabf",))
+    urls = {}
+    for i, k in enumerate(keys):
+        p = synthetic_root / k
+        last = k.endswith("1852.nc")
+        write_forcing_file(
+            p,
+            year=int(k[-7:-3]),
+            variable="acabf",
+            seed=i,
+            fill_value=NC_FILL if last else float("nan"),
+            fill_cell=last,
+        )
+        urls[k] = f"file://{p}"
+    result = concat_group([parse_key(k).forcing for k in keys], local_registry(), urls=urls)
+    assert result.ds["acabf"].attrs["missing_value"] == pytest.approx(float(NC_FILL))
+    repo = open_repository(local_target, create=True)
+    wr = write_group(repo, result)
+    stored = open_group(repo, wr.group_path)["acabf"]
+    assert np.isnan(stored.isel(time=24).values[0, 0])  # the 9.97e36 cell decodes as NaN
+    assert not np.isnan(stored.isel(time=24).values[1, 1])
     assert verify_group(repo, result, n_files=3, seed=0).ok

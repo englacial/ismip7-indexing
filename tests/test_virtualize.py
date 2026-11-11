@@ -432,13 +432,14 @@ def test_concat_group_rejects_overlap_and_mixed_groups(synthetic_root, local_reg
 
 
 def test_concat_group_rejects_different_fill_values(synthetic_root, local_registry):
-    with pytest.raises(VirtualizeError, match="fill value"):
+    # -9999 could be data, so a file using it as its fill value is refused
+    with pytest.raises(VirtualizeError, match="could be data"):
         _group(
             synthetic_root,
             local_registry,
             [(_key(year=1850), {}), (_key(year=1851), {"fill_value": -9999.0})],
         )
-    with pytest.raises(VirtualizeError, match="missing_value"):
+    with pytest.raises(VirtualizeError, match=r"missing_value .* not declared by every file"):
         _group(
             synthetic_root,
             local_registry,
@@ -684,3 +685,38 @@ def test_block_reader_uses_small_blocks_within_the_cache_budget(tmp_path):
     assert reader._max_cached_blocks * HDF_READ_BLOCK_BYTES == HDF_READ_CACHE_BYTES
     reader.seek(50_000)
     assert reader.read(10) == b"x" * 10
+
+
+def test_concat_group_lists_a_file_s_own_fill_value_as_missing_value(
+    synthetic_root, local_registry
+):
+    """GrIS sgd/tf: most files fill with NaN, one with the netCDF default; xarray masks both."""
+    nan = float("nan")
+    specs = [
+        (_key(year=1850), {"fill_value": nan}),
+        (_key(year=1851), {"fill_value": nan}),
+        (_key(year=1852), {"fill_value": NC_FILL, "fill_cell": True}),
+    ]
+    result = _group(synthetic_root, local_registry, specs)
+    a = result.ds["acabf"]
+    assert np.isnan(float(a.data.metadata.fill_value))  # the series' storage fill
+    assert a.attrs["missing_value"] == pytest.approx(float(NC_FILL))
+    [note] = [n for n in result.notes if "listed as missing_value" in n]
+    assert note.startswith(
+        "acabf: acabf_AIS_CESM2-WACCM_historical_SDBN1-32000m_v2_1852.nc: _FillValue 9.969"
+    )
+    assert note.endswith(
+        "where the series uses nan; listed as missing_value, which xarray masks too"
+    )
+    assert any(
+        "storage fill value 9.969209968386869e+36 where the series uses nan" in n
+        for n in result.notes
+    )
+
+    # the other way round: the odd file fills with NaN, which needs no listing
+    specs = [(_key(year=1850), {}), (_key(year=1851), {}), (_key(year=1852), {"fill_value": nan})]
+    result = _group(synthetic_root, local_registry, specs)
+    a = result.ds["acabf"]
+    assert float(a.data.metadata.fill_value) == pytest.approx(float(NC_FILL))
+    assert "missing_value" not in a.attrs
+    assert a.attrs["_FillValue"] == "AAAAAAAAnkc="

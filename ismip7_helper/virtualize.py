@@ -1398,8 +1398,10 @@ def _open_with_processes(
 
 
 def _common_prefix(keys: list[str]) -> str:
-    # character-wise prefix on purpose, then cut back to a directory boundary
-    return os.path.commonprefix(keys).rsplit("/", 1)[0] + "/" if keys else ""
+    """The deepest directory common to ``keys`` (with its trailing slash); ``""`` for none."""
+    if not keys:
+        return ""
+    return os.path.commonpath([os.path.dirname(k) for k in keys]) + "/"
 
 
 __all__ = [

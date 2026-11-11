@@ -3,6 +3,7 @@
 #
 #   AWS_PROFILE=astera infra/deploy.sh            # full deploy: stack, image, function update
 #   AWS_PROFILE=astera infra/deploy.sh --image    # rebuild and push the image, update the function only
+#   LAMBDA_ARCH=arm64 AWS_PROFILE=astera infra/deploy.sh   # Graviton image and function (default x86_64)
 #
 # Requires: aws CLI signed in to the target account, docker (with buildx) or podman, a clean git checkout.
 # Set CONTAINER_CLI=podman|docker to choose; defaults to docker if present, else podman.
@@ -20,6 +21,13 @@ ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 ECR="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com"
 SHA=$(git rev-parse HEAD)
 IMAGE="${ECR}/${FUNCTION}:${SHA}"
+# x86_64 (default) or arm64: the image platform and the function's architecture.
+ARCH=${LAMBDA_ARCH:-x86_64}
+case "$ARCH" in
+  x86_64) PLATFORM=linux/amd64 ;;
+  arm64) PLATFORM=linux/arm64 ;;
+  *) echo "LAMBDA_ARCH must be x86_64 or arm64, got $ARCH" >&2; exit 2 ;;
+esac
 
 CLI=${CONTAINER_CLI:-$(command -v docker >/dev/null 2>&1 && echo docker || echo podman)}
 
@@ -29,11 +37,11 @@ build_and_push() {
   aws ecr get-login-password --region "$REGION" | "$CLI" login --username AWS --password-stdin "$ECR"
   if [[ "$CLI" == podman ]]; then
     # Lambda needs a Docker v2 single-image manifest: build in docker format (not OCI).
-    podman build --platform linux/amd64 --format docker \
+    podman build --platform "$PLATFORM" --format docker \
         --build-arg GIT_SHA="$SHA" -f Dockerfile.lambda -t "$IMAGE" .
     podman push --format v2s2 "$IMAGE"
   else
-    docker buildx build --platform linux/amd64 --provenance=false \
+    docker buildx build --platform "$PLATFORM" --provenance=false \
         --build-arg GIT_SHA="$SHA" -f Dockerfile.lambda -t "$IMAGE" --load .
     docker push "$IMAGE"
   fi
@@ -53,7 +61,7 @@ if ! aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK"
   echo "creating stack $STACK (repository, role, secret, log group; no function yet)"
   aws cloudformation deploy --region "$REGION" --stack-name "$STACK" \
       --template-file infra/lambda-stack.yaml --capabilities CAPABILITY_NAMED_IAM \
-      --parameter-overrides FunctionName="$FUNCTION" ImageUri="" ExecutionRoleArn="$ROLE_ARN" \
+      --parameter-overrides FunctionName="$FUNCTION" ImageUri="" ExecutionRoleArn="$ROLE_ARN" Architecture="$ARCH" \
       --no-fail-on-empty-changeset
 fi
 
@@ -63,7 +71,7 @@ build_and_push
 # 3. Create (or update) the function with the real image.
 aws cloudformation deploy --region "$REGION" --stack-name "$STACK" \
     --template-file infra/lambda-stack.yaml --capabilities CAPABILITY_NAMED_IAM \
-    --parameter-overrides FunctionName="$FUNCTION" ImageUri="$IMAGE" ExecutionRoleArn="$ROLE_ARN" \
+    --parameter-overrides FunctionName="$FUNCTION" ImageUri="$IMAGE" ExecutionRoleArn="$ROLE_ARN" Architecture="$ARCH" \
     --no-fail-on-empty-changeset
 
 aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" \

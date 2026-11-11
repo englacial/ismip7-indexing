@@ -5,6 +5,11 @@ Description: >
   source.coop. See docs/lambda.md. Deploy with infra/deploy.sh.
 
 Parameters:
+  Architecture:
+    Type: String
+    Default: x86_64
+    AllowedValues: [x86_64, arm64]
+    Description: Instruction set of the function and its image (deploy.sh LAMBDA_ARCH)
   FunctionName:
     Type: String
     Default: ismip7-virtualize
@@ -108,7 +113,7 @@ Resources:
       Code:
         ImageUri: !Ref ImageUri
       Role: !If [CreateRole, !GetAtt ExecutionRole.Arn, !Ref ExecutionRoleArn]
-      Architectures: [x86_64]
+      Architectures: [!Ref Architecture]
       MemorySize: !Ref MemorySize
       Timeout: !Ref Timeout
       EphemeralStorage: { Size: 2048 }

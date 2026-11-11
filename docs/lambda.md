@@ -200,6 +200,20 @@ aws secretsmanager put-secret-value --region us-west-2 --secret-id ismip7/sc_cre
    aws lambda put-function-concurrency --function-name ismip7-virtualize --reserved-concurrent-executions 250
    ```
 
+## Image CI and architectures
+
+`.github/workflows/image.yml` builds the image for arm64 (on a native
+`ubuntu-24.04-arm` runner) and amd64 on every change to the image inputs and
+runs the handler once under the Lambda Runtime Interface Emulator on each:
+`scripts/dev/rie_smoke.py` writes four synthetic files and an empty local
+repository, `scripts/dev/rie_run.sh` builds, invokes the handler as uid 1000
+with `/dev/shm` read-only and fails unless the group verifies. The same two
+commands run locally (`PLATFORM=linux/arm64` builds through qemu on an x86
+machine). Production is deployed with `LAMBDA_ARCH=x86_64|arm64 infra/deploy.sh`,
+which sets the image platform and the stack's `Architecture` parameter;
+switching an existing function between architectures is a stack update plus
+an image push.
+
 ## Verified under the Runtime Interface Emulator (2026-11-01)
 
 The image built from `Dockerfile.lambda` (1.19 GB, linux/amd64) was run under

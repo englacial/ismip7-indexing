@@ -1,0 +1,54 @@
+# Build the Lambda container image for both architectures and run the handler
+# once under the Lambda Runtime Interface Emulator on each (synthetic files,
+# local repository: no AWS access). Deployment stays with infra/deploy.sh.
+name: Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile.lambda
+      - .dockerignore
+      - pyproject.toml
+      - uv.lock
+      - ismip7_helper/**
+      - scripts/dev/rie_*
+      - .github/workflows/image.yml
+  pull_request:
+    paths:
+      - Dockerfile.lambda
+      - .dockerignore
+      - pyproject.toml
+      - uv.lock
+      - ismip7_helper/**
+      - scripts/dev/rie_*
+      - .github/workflows/image.yml
+  workflow_dispatch:
+
+jobs:
+  image:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+    name: ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12
+      - run: uv venv && uv pip install -e ".[dev]"
+      - uses: docker/setup-buildx-action@v3
+      - name: Prepare the smoke test
+        run: uv run python scripts/dev/rie_smoke.py "$RUNNER_TEMP/rie"
+      - name: Build and invoke under the emulator
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: scripts/dev/rie_run.sh "$RUNNER_TEMP/rie"

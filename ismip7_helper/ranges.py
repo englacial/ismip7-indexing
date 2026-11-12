@@ -60,11 +60,13 @@ RANGE_READ_WORKERS = 4
 
 def range_axis(dims: Sequence[str] | None) -> str | None:
     """The axis an array is sampled along: ``time``, ``time_annual``, ``time_<n>`` or ``month``
-    as the first of at least three dimensions; ``None`` for anything else (coordinates, bounds)."""
+    as the first of at least three dimensions, or ``z`` for a depth stack without a time
+    axis (the ocean climatologies, where the viewer colours one level at a time);
+    ``None`` for anything else (coordinates, bounds)."""
     if not dims or len(dims) < 3:
         return None
     d = dims[0]
-    return d if d == "month" or d == "time" or d.startswith("time_") else None
+    return d if d in ("month", "time", "z") or d.startswith("time_") else None
 
 
 def sample_indices(n: int, n_steps: int = DEFAULT_RANGE_STEPS) -> list[int]:

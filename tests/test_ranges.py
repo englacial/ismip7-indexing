@@ -85,6 +85,7 @@ def test_range_axis():
     assert range_axis(("time_annual", "y", "x")) == "time_annual"
     assert range_axis(("month", "y", "x")) == "month"
     assert range_axis(("time", "z", "y", "x")) == "time"
+    assert range_axis(("z", "y", "x")) == "z"
     assert range_axis(("time", "bnds")) is None and range_axis(("y", "x")) is None
     assert range_axis(("x",)) is None and range_axis(None) is None
 

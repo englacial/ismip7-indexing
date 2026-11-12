@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -211,6 +212,31 @@ def test_manifest_split_unit_is_chunks_along_time(synthetic_root, tmp_path):
         return len(list((tmp_path / name / "manifests").iterdir()))
 
     assert n_manifests(1000, "one") + 3 == n_manifests(12, "split")
+
+
+def test_readonly_open_of_a_credential_less_s3_target_is_anonymous(monkeypatch):
+    """Readers of the public store (notebooks, catalog) have no AWS credentials at all."""
+    import icechunk
+
+    for k in list(os.environ):
+        if k.startswith("AWS_"):
+            monkeypatch.delenv(k)
+    target = StoreTarget.region_default("AIS")
+    assert storage_for(target, anonymous=True) is not None  # builds without credentials
+    seen = []
+
+    def exists(storage):
+        seen.append(storage)
+        return False
+
+    monkeypatch.setattr(icechunk.Repository, "exists", staticmethod(exists))
+    with pytest.raises(RepositoryNotFoundError):  # past the storage: no credential error
+        open_repository(target, readonly=True)
+    assert len(seen) == 1
+    # a write open keeps the environment provider (never anonymous)
+    with pytest.raises(RepositoryNotFoundError):
+        open_repository(target)
+    assert len(seen) == 2
 
 
 def test_open_repository_does_not_create_unless_asked(tmp_path):

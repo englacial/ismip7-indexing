@@ -269,7 +269,14 @@ def container_credentials(target: StoreTarget) -> dict[str, Any]:
     return icechunk.containers_credentials(m)
 
 
-def storage_for(target: StoreTarget) -> Any:
+def storage_for(target: StoreTarget, *, anonymous: bool = False) -> Any:
+    """The icechunk storage for ``target``.
+
+    An S3 target without credentials signs with the environment's AWS
+    credentials, or with none at all when ``anonymous`` (a read of the
+    public store from a machine without AWS credentials: the notebooks, the
+    catalog). Writes are never anonymous.
+    """
     import icechunk
 
     if target.is_local:
@@ -292,6 +299,8 @@ def storage_for(target: StoreTarget) -> Any:
         kw["get_credentials"] = target.get_credentials
     elif creds:
         kw.update(creds)
+    elif anonymous:
+        kw["anonymous"] = True
     else:
         kw["from_env"] = True
     return icechunk.s3_storage(**kw)
@@ -318,11 +327,16 @@ def open_repository(target: StoreTarget, *, create: bool = False, readonly: bool
     runners (``ismip7-virtualize``, ``ismip7-fanout``), which create it once
     before any worker starts. A concurrent creation is tolerated (the loser
     opens the winner's repository). Without ``create`` a missing repository
-    raises :class:`RepositoryNotFoundError`.
+    raises :class:`RepositoryNotFoundError`. A ``readonly`` open of a target
+    without credentials is anonymous: the public store needs no AWS
+    credentials to read, and icechunk's environment provider fails without
+    any ("no providers in chain provided credentials").
     """
     import icechunk
 
-    storage = storage_for(target)
+    storage = storage_for(
+        target, anonymous=readonly and not target.credentials and target.get_credentials is None
+    )
     cfg = repository_config(target)
     creds = container_credentials(target)
 

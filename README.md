@@ -1,13 +1,20 @@
 # ISMIP7 indexing and virtualization
 
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/englacial/ismip7-indexing/main?labpath=notebooks%2F01_open_and_use.ipynb)
+[![Viewer](https://img.shields.io/badge/viewer-gridlook-blue)](https://docs.englacial.org/ismip7-indexing/)
+
 Tools to index and virtualize the [ISMIP7](https://www.ismip.org/research/ismip7)
 datasets published on [source.coop](https://source.coop/ismip) into cloud-native
 [Icechunk](https://icechunk.io/) stores, following the
 [ISMIP6 virtualization](https://github.com/englacial/ismip-indexing).
 
-Status: **conventions and indexing only.** The virtualization pipeline, the
+Status: the forcing datasets of both ice sheets are virtualized into two public
 Icechunk stores under `s3://us-west-2.opendata.source.coop/englacial/ismip7/`
-and the notebooks come next; see [docs/plan.md](docs/plan.md).
+(`icechunk-ais`, `icechunk-gris`; 218 groups, 5.96 TB of NetCDF referenced by
+22 GB of store), browsable in the [viewer](https://docs.englacial.org/ismip7-indexing/)
+and from the [notebooks](notebooks/), which the Binder button opens in a
+ready-made environment. See [docs/plan.md](docs/plan.md) for the plan and
+[docs/lambda.md](docs/lambda.md) for how the stores are built.
 
 We are not associated with ISMIP. These are tools for publicly available data.
 

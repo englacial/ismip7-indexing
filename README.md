@@ -1,6 +1,6 @@
 # ISMIP7 indexing and virtualization
 
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/englacial/ismip7-indexing/main?labpath=notebooks%2F01_open_and_use.ipynb)
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/englacial/ismip7-indexing/main?labpath=notebooks%2F02_datatree.ipynb)
 [![Viewer](https://img.shields.io/badge/viewer-gridlook-blue)](https://docs.englacial.org/ismip7-indexing/)
 
 Tools to index and virtualize the [ISMIP7](https://www.ismip.org/research/ismip7)

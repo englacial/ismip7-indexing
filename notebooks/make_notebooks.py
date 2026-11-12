@@ -40,7 +40,6 @@ import time
 
 import icechunk
 import xarray as xr
-import zarr
 
 REGION = os.environ.get("ISMIP7_NB_REGION", "AIS")  # or "GrIS"
 BUCKET = "us-west-2.opendata.source.coop"
@@ -75,6 +74,8 @@ print("store:", f"s3://{BUCKET}/{PREFIX}", "| snapshot", session.snapshot_id)
 """
 
 LIST_GROUPS = """\
+import zarr
+
 root = zarr.open_group(session.store, mode="r")
 
 families, levels = {}, []
@@ -136,73 +137,74 @@ print(f"{n} steps x 200 x 200 cells read in {secs:.2f}s")
 box.mean(tdim).plot(x="x", y="y", robust=True, figsize=(5, 5));
 """
 
+ENGINE = """\
+# rustytree (https://github.com/aladinor/rustytree, `pip install rustytree-xarray`) walks the
+# hierarchy concurrently in Rust and reads arrays through its own Rust path, so a whole
+# store opens in seconds; the zarr engine does the same work one group at a time
+if "rustytree" in xr.backends.list_engines():
+    TREE = {"engine": "rustytree"}
+else:
+    print("rustytree is not installed: using the zarr engine (slower on large trees)")
+    TREE = {"engine": "zarr", "consolidated": False}
+"""
+
+TREE_STORE = """\
+# the whole store as one lazy tree: metadata only, nothing read until asked
+t0 = time.time()
+tree = xr.open_datatree(session.store, decode_times=TIME, **TREE)
+data = [n for n in tree.subtree if n.data_vars]
+families = {
+    n.path.strip("/"): [d["path"] for d in n.attrs["multiscales"][0]["datasets"]]
+    for n in tree.subtree
+    if "multiscales" in n.attrs
+}
+print(
+    f"{REGION}: {len(data)} data groups in {len(families)} families, "
+    f"{tree.nbytes / 1e12:.1f} TB virtual, opened in {time.time() - t0:.1f}s"
+)
+for fam, lv in list(families.items())[:8]:
+    print(f"  {fam}: {lv}")
+"""
+
 TREE_FAMILY = """\
-# the family is small and opens in a moment; an ESM or the whole store means one
-# metadata read per group (hundreds), so scope the tree to what you need
-t0 = time.time()
-dt = xr.open_datatree(
-    session.store, group=FAMILY, engine="zarr", consolidated=False, decode_times=TIME
-)
-print(f"{FAMILY}: {len(list(dt.subtree))} nodes in {time.time() - t0:.1f}s")
-for node in dt.subtree:
-    if node.data_vars:
-        print(" ", node.path, sorted(node.data_vars)[:6], "...")
+# a family: one child per resolution, finest first in `multiscales`
+FAMILY = os.environ.get("ISMIP7_NB_FAMILY", "CESM2-WACCM/historical/SDBN1")
+family = tree[FAMILY]
+print(family.attrs["multiscales"][0]["datasets"])
+print({child: dict(family[child].ds.sizes) for child in family.children})
 """
 
-TREE_ESM = """\
-ESM = FAMILY.split("/")[0]
-t0 = time.time()
-dt = xr.open_datatree(
-    session.store, group=ESM, engine="zarr", consolidated=False, decode_times=TIME
-)
-leaves = [n.path for n in dt.subtree if n.data_vars]
-print(f"{ESM}: {len(leaves)} data groups in {time.time() - t0:.1f}s")
-print(leaves[:12])
+TREE_GROUP = """\
+# one resolution as a Dataset (the coarsest level of the family)
+GROUP = f"{FAMILY}/{families[FAMILY][-1]}"
+ds = tree[GROUP].to_dataset()
+ds
 """
 
-RUSTY = """\
-# Optional: rustytree (https://github.com/aladinor/rustytree, `pip install rustytree-xarray`)
-# walks a Zarr v3 hierarchy in Rust, concurrently, as `engine="rustytree"`, and its arrays
-# read through its own Rust path (zarrs + the icechunk crate), so the walk is bound by one
-# round trip rather than one per group
-try:
-    import rustytree  # noqa: F401
-except ImportError:
-    print("rustytree is not installed; skipping")
-else:
-    for engine in ("zarr", "rustytree"):
-        t0 = time.time()
-        dt = xr.open_datatree(session.store, group=ESM, engine=engine, decode_times=TIME)
-        print(f"{engine:9s}: {sum(1 for _ in dt.subtree)} nodes in {time.time() - t0:.1f}s")
+TREE_BOTH = """\
+# both ice sheets as one tree: AIS and GrIS are separate Icechunk repositories, so open
+# each and nest them
+trees = {}
+for region in ("AIS", "GrIS"):
+    prefix = f"englacial/ismip7/icechunk-{region.lower()}"
+    stor = icechunk.s3_storage(bucket=BUCKET, prefix=prefix, region="us-west-2", anonymous=True)
+    sess = icechunk.Repository.open(stor, authorize_virtual_chunk_access=containers)
+    trees[region] = xr.open_datatree(sess.readonly_session("main").store, decode_times=TIME, **TREE)
+both = xr.DataTree.from_dict(trees)
+n_data = {r: sum(1 for n in t.subtree if n.data_vars) for r, t in trees.items()}
+print(sum(1 for _ in both.subtree), "nodes;", n_data)
+print(both["GrIS/CESM2-WACCM/historical/SDBN1"].attrs["multiscales"][0]["datasets"])
 """
 
-RUSTY_WHOLE = """\
-# With rustytree the whole store, and both stores, are one lazy tree: a few seconds to
-# open, nothing read until you ask for data
-if "rustytree" not in xr.backends.list_engines():
-    print("rustytree is not installed; skipping")
-else:
-    trees = {}
-    for region in ("AIS", "GrIS"):
-        prefix = f"englacial/ismip7/icechunk-{region.lower()}"
-        stor = icechunk.s3_storage(bucket=BUCKET, prefix=prefix, region="us-west-2", anonymous=True)
-        sess = icechunk.Repository.open(
-            stor, authorize_virtual_chunk_access=containers
-        ).readonly_session("main")
-        t0 = time.time()
-        trees[region] = xr.open_datatree(sess.store, engine="rustytree", decode_times=TIME)
-        n_data = sum(1 for n in trees[region].subtree if n.data_vars)
-        tb = trees[region].nbytes / 1e12
-        print(f"{region}: {n_data} data groups, {tb:.1f} TB virtual, in {time.time() - t0:.1f}s")
-    both = xr.DataTree.from_dict(trees)
-    print(sum(1 for _ in both.subtree), "nodes in one tree; e.g.", both[f"AIS/{GROUP}"].ds.sizes)
-    # a glob over full paths (leading slash) scopes the walk
+TREE_FILTER = """\
+# scope a walk with a glob over full group paths (leading slash): e.g. every historical
+# 8 km group of this store (rustytree only; the zarr engine ignores group_filter)
+if TREE["engine"] == "rustytree":
     t0 = time.time()
     hist8 = xr.open_datatree(
-        session.store, engine="rustytree", group_filter="/*/historical/*/8000m", decode_times=TIME
+        session.store, group_filter="/*/historical/*/8000m", decode_times=TIME, **TREE
     )
-    n_hist8 = sum(1 for n in hist8.subtree if n.data_vars)
-    print(f"historical 8 km groups: {n_hist8} in {time.time() - t0:.1f}s")
+    print([n.path for n in hist8.subtree if n.data_vars], f"in {time.time() - t0:.1f}s")
 """
 
 PROFILE = """\
@@ -312,21 +314,43 @@ NB1 = nb(
 )
 
 NB2 = nb(
-    "Browse the hierarchy as a DataTree",
+    "ISMIP7 forcing as a DataTree",
     [
-        ("code", SETUP),
-        ("code", LIST_GROUPS),
         (
             "md",
-            "## Scope the tree\n\n`xr.open_datatree` reads the metadata of every group below the one "
-            "you open, so open the family or the ESM you need rather than the whole store.",
+            "## Open the repository\n\nThree things a reader must get right: the bucket and prefix, "
+            "`anonymous=True` (otherwise icechunk looks for AWS credentials), and authorising the "
+            "virtual-chunk container (wrapped by `containers_credentials`), since icechunk refuses to "
+            "follow references into a bucket you have not allowed.",
         ),
+        ("code", SETUP),
+        ("code", ENGINE),
+        (
+            "md",
+            "## The whole store as one tree\n\nGroups are `ESM/experiment/family/resolution`; a family "
+            "group carries OME-NGFF `multiscales` naming its resolution levels, finest first.",
+        ),
+        ("code", TREE_STORE),
+        ("md", "## A family, then one resolution as a Dataset"),
         ("code", TREE_FAMILY),
-        ("code", TREE_ESM),
-        ("md", "## Optional: a faster walker"),
-        ("code", RUSTY),
-        ("md", "## Optional: the whole store, and both stores, as one tree"),
-        ("code", RUSTY_WHOLE),
+        ("code", TREE_GROUP),
+        ("code", GROUP_INFO),
+        (
+            "md",
+            "## Plot one month\n\nOnly the chunk(s) of that time step are fetched from the source file; "
+            "the fill value is masked to NaN.",
+        ),
+        ("code", PLOT),
+        (
+            "md",
+            "## Subset and reduce\n\nA spatial window and a mean over the first year; everything stays "
+            "lazy until it is loaded.",
+        ),
+        ("code", SUBSET),
+        ("md", "## Both ice sheets in one tree"),
+        ("code", TREE_BOTH),
+        ("md", "## Scope a walk with a glob"),
+        ("code", TREE_FILTER),
     ],
 )
 

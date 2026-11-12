@@ -161,9 +161,10 @@ print(leaves[:12])
 """
 
 RUSTY = """\
-# Optional: rustytree (https://github.com/aladinor/rustytree) walks a Zarr v3 hierarchy
-# in Rust, concurrently, as `engine="rustytree"`; install it from its repository
-# (pip install git+https://github.com/aladinor/rustytree) to compare.
+# Optional: rustytree (https://github.com/aladinor/rustytree, `pip install rustytree-xarray`)
+# walks a Zarr v3 hierarchy in Rust, concurrently, as `engine="rustytree"`, and its arrays
+# read through its own Rust path (zarrs + the icechunk crate), so the walk is bound by one
+# round trip rather than one per group
 try:
     import rustytree  # noqa: F401
 except ImportError:
@@ -173,6 +174,35 @@ else:
         t0 = time.time()
         dt = xr.open_datatree(session.store, group=ESM, engine=engine, decode_times=TIME)
         print(f"{engine:9s}: {sum(1 for _ in dt.subtree)} nodes in {time.time() - t0:.1f}s")
+"""
+
+RUSTY_WHOLE = """\
+# With rustytree the whole store, and both stores, are one lazy tree: a few seconds to
+# open, nothing read until you ask for data
+if "rustytree" not in xr.backends.list_engines():
+    print("rustytree is not installed; skipping")
+else:
+    trees = {}
+    for region in ("AIS", "GrIS"):
+        prefix = f"englacial/ismip7/icechunk-{region.lower()}"
+        stor = icechunk.s3_storage(bucket=BUCKET, prefix=prefix, region="us-west-2", anonymous=True)
+        sess = icechunk.Repository.open(
+            stor, authorize_virtual_chunk_access=containers
+        ).readonly_session("main")
+        t0 = time.time()
+        trees[region] = xr.open_datatree(sess.store, engine="rustytree", decode_times=TIME)
+        n_data = sum(1 for n in trees[region].subtree if n.data_vars)
+        tb = trees[region].nbytes / 1e12
+        print(f"{region}: {n_data} data groups, {tb:.1f} TB virtual, in {time.time() - t0:.1f}s")
+    both = xr.DataTree.from_dict(trees)
+    print(sum(1 for _ in both.subtree), "nodes in one tree; e.g.", both[f"AIS/{GROUP}"].ds.sizes)
+    # a glob over full paths (leading slash) scopes the walk
+    t0 = time.time()
+    hist8 = xr.open_datatree(
+        session.store, engine="rustytree", group_filter="/*/historical/*/8000m", decode_times=TIME
+    )
+    n_hist8 = sum(1 for n in hist8.subtree if n.data_vars)
+    print(f"historical 8 km groups: {n_hist8} in {time.time() - t0:.1f}s")
 """
 
 PROFILE = """\
@@ -295,6 +325,8 @@ NB2 = nb(
         ("code", TREE_ESM),
         ("md", "## Optional: a faster walker"),
         ("code", RUSTY),
+        ("md", "## Optional: the whole store, and both stores, as one tree"),
+        ("code", RUSTY_WHOLE),
     ],
 )
 

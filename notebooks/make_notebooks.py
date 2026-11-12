@@ -178,32 +178,48 @@ else:
 PROFILE = """\
 import pandas as pd
 
+# the "year" read is a 200 x 200 cell window so the notebook stays small enough for
+# Binder (a full year of a 2 km field is 444 MB, of the 3-D ocean fields 834 MB)
+ENGINES = ["zarr"]
+try:
+    import rustytree  # noqa: F401
+
+    ENGINES.append("rustytree")
+except ImportError:
+    pass
+
 results = []
 for gp in levels[:10]:
-    t0 = time.time()
-    r = icechunk.Repository.open(storage, authorize_virtual_chunk_access=containers)
-    sess = r.readonly_session("main")
-    t_open = round(time.time() - t0, 2)
-    t0 = time.time()
-    d = xr.open_zarr(sess.store, group=gp, consolidated=False, decode_times=TIME)
-    t_group = round(time.time() - t0, 2)
-    v = next(x for x in d.data_vars if d[x].ndim >= 3)
-    tdim = d[v].dims[0]
-    t_first = read_time(d[v].isel({tdim: 0}))
-    n = min(12, d.sizes[tdim])
-    t_year = read_time(d[v].isel({tdim: slice(0, n)}))
-    results.append(
-        {
-            "group": gp,
-            "var": v,
-            "steps": d.sizes[tdim],
-            "chunks": d[v].encoding.get("chunks"),
-            "open": t_open,
-            "group_open": t_group,
-            "first_step": round(t_first, 2),
-            "twelve_steps": round(t_year, 2),
-        }
-    )
+    for engine in ENGINES:
+        t0 = time.time()
+        r = icechunk.Repository.open(storage, authorize_virtual_chunk_access=containers)
+        sess = r.readonly_session("main")
+        t_open = round(time.time() - t0, 2)
+        t0 = time.time()
+        if engine == "zarr":
+            d = xr.open_zarr(sess.store, group=gp, consolidated=False, decode_times=TIME)
+        else:
+            d = xr.open_dataset(sess, group=gp, engine=engine, decode_times=TIME)
+        t_group = round(time.time() - t0, 2)
+        v = next(x for x in d.data_vars if d[x].ndim >= 3)
+        tdim = d[v].dims[0]
+        t_first = read_time(d[v].isel({tdim: 0}))
+        n = min(12, d.sizes[tdim])
+        window = {tdim: slice(0, n), "x": slice(100, 300), "y": slice(100, 300)}
+        t_year = read_time(d[v].isel(window))
+        results.append(
+            {
+                "group": gp,
+                "engine": engine,
+                "var": v,
+                "steps": d.sizes[tdim],
+                "chunks": d[v].encoding.get("chunks"),
+                "open": t_open,
+                "group_open": t_group,
+                "first_step": round(t_first, 2),
+                "year_window": round(t_year, 2),
+            }
+        )
 pd.DataFrame(results)
 """
 
@@ -289,9 +305,11 @@ NB3 = nb(
         ("code", LIST_GROUPS),
         (
             "md",
-            "What a reader pays: opening the repository, opening one group, the first time step, and a "
-            "full year; plus how big the manifests are (what a browser client downloads before the "
-            "first step).",
+            "What a reader pays: opening the repository, opening one group, the first time step of the "
+            "first 3-D variable, and a year of a 200 x 200 window; with the zarr engine and, when it is "
+            "installed, [rustytree](https://github.com/aladinor/rustytree), whose arrays read through "
+            "its own Rust path (zarrs + icechunk) rather than Python zarr. Then how big the manifests "
+            "are (what a browser client downloads before the first step).",
         ),
         ("code", PROFILE),
         (

@@ -76,10 +76,12 @@ ds = open_group("AIS", "CESM2-WACCM/ssp585/SDBN1/8000m")   # one group, xarray D
 dt = open_store("GrIS", engine="rustytree")               # whole store as a DataTree
 ```
 
-`notebooks/` has executable examples (open and use, rustytree, performance
-profile); regenerate them with `python notebooks/make_notebooks.py` and run
-them against a local dev store with `ISMIP7_STORE_AIS=local:/path/icechunk-ais
-python notebooks/make_notebooks.py --execute`.
+`notebooks/` has executable examples (open and use, DataTree, performance
+profile) that open the public stores anonymously with icechunk, zarr and
+xarray only; `ISMIP7_NB_REGION` / `ISMIP7_NB_FAMILY` pick the region and
+family. Regenerate them with `python notebooks/make_notebooks.py` (add
+`--execute` to run them in place). They are sized for Binder
+(`binder/requirements.txt`); the optional rustytree cells use the PyPI wheel.
 
 ## Index and report
 

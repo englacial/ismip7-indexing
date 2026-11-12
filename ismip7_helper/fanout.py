@@ -30,6 +30,12 @@ invoked: they are recorded as ``deferred``, listed in ``--big-groups``, and
 the command to run them with ``ismip7-virtualize --workers`` on a big
 machine is printed.
 
+``--ranges`` is the colour-range backfill: one event per *existing* group
+of the region (no index needed), which the handler samples through the
+store and commits ``actual_range`` on; groups whose arrays already carry it
+are skipped unless ``--overwrite``. Write runs sample the ranges from the
+source files on the way (``--no-ranges`` turns that off).
+
 Ctrl-C stops the fan-out from starting more groups; the groups already
 invoked keep running on Lambda (up to 15 minutes) and are recorded as
 ``in-flight`` in the report. Wait for them before re-running.
@@ -52,6 +58,7 @@ from typing import Any
 
 from .conventions import ForcingFile
 from .pipeline import GroupRun, load_groups, plan_groups, report_writer
+from .ranges import DEFAULT_RANGE_STEPS, plan_ranges, range_states
 from .store import (
     CredentialsExpiringError,
     RepositoryNotFoundError,
@@ -84,8 +91,14 @@ def make_event(
     verify: int = 0,
     reason: str | None = None,
     source_root: str | None = None,
+    ranges: bool = True,
+    range_steps: int | None = None,
 ) -> dict[str, Any]:
-    """The handler's event for one group (keys sorted, so a retry has the same digest)."""
+    """The handler's event for one group (keys sorted, so a retry has the same digest).
+
+    ``ranges=False`` turns the write-time colour-range sampling off;
+    ``range_steps`` changes its sample size (the handler's default otherwise).
+    """
     ev = {
         "group_path": group_path,
         "keys": [[f.key, f.size] for f in sorted(files, key=lambda f: f.key)],
@@ -96,6 +109,34 @@ def make_event(
     }
     if reason:
         ev["reason"] = reason
+    if source_root:
+        ev["source_root"] = str(source_root)
+    if not ranges:
+        ev["ranges"] = False
+    if range_steps:
+        ev["range_steps"] = int(range_steps)
+    return ev
+
+
+def make_ranges_event(
+    group_path: str,
+    *,
+    target: str,
+    region: str = "us-west-2",
+    overwrite: bool = False,
+    range_steps: int | None = None,
+    source_root: str | None = None,
+) -> dict[str, Any]:
+    """The handler's backfill event for one existing group (no keys: sampled through the store)."""
+    ev: dict[str, Any] = {
+        "group_path": group_path,
+        "target": target,
+        "region": region,
+        "ranges": True,
+        "overwrite": overwrite,
+    }
+    if range_steps:
+        ev["range_steps"] = int(range_steps)
     if source_root:
         ev["source_root"] = str(source_root)
     return ev
@@ -301,7 +342,7 @@ def _virtualize_command(args: argparse.Namespace, target: str, groups: list[str]
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--index", required=True)
+    ap.add_argument("--index", help="Parquet index from ismip7-index (not needed with --ranges)")
     ap.add_argument("--region", required=True, choices=["AIS", "GrIS"])
     ap.add_argument("--groups", nargs="*", default=None, help="glob(s) on group paths")
     ap.add_argument("--target", help="local:/path or s3://bucket/prefix (default: production repo)")
@@ -345,6 +386,22 @@ def main(argv: list[str] | None = None) -> int:
         help="groups estimated longer than this are deferred to ismip7-virtualize --workers",
     )
     ap.add_argument("--big-groups", help="file to list the deferred groups in")
+    ap.add_argument(
+        "--ranges",
+        action="store_true",
+        help="backfill mode: one event per existing group of the region, sampled through the "
+        "store for actual_range; groups whose arrays carry one are skipped unless --overwrite",
+    )
+    ap.add_argument(
+        "--range-steps",
+        type=int,
+        default=DEFAULT_RANGE_STEPS,
+        metavar="N",
+        help="time steps sampled per variable for actual_range",
+    )
+    ap.add_argument(
+        "--no-ranges", action="store_true", help="do not sample colour ranges when writing"
+    )
     ap.add_argument("--dry-run", action="store_true", help="print the events and exit")
     ap.add_argument("--report", help="JSON report path (default: run-<region>-<UTC time>.json)")
     ap.add_argument("-v", "--verbose", action="store_true")
@@ -393,6 +450,10 @@ def main(argv: list[str] | None = None) -> int:
                 "source.coop)"
             )
 
+    if args.ranges:
+        return _ranges_main(ap, args, st, target, stamp)
+    if not args.index:
+        ap.error("--index is required (except with --ranges)")
     groups = load_groups(args.index, region=args.region, patterns=args.groups)
     repo = None
     if args.dry_run:  # read-only: plan against the repository when it can be read
@@ -453,6 +514,8 @@ def main(argv: list[str] | None = None) -> int:
             verify=args.verify,
             reason=None if reason == "new" else reason,
             source_root=args.source_root,
+            ranges=not args.no_ranges,
+            range_steps=args.range_steps if args.range_steps != DEFAULT_RANGE_STEPS else None,
         )
         for g, (f, ow, reason) in write.items()
     ]
@@ -486,13 +549,28 @@ def main(argv: list[str] | None = None) -> int:
 
     assert repo is not None
     ensure_hierarchy(repo, list(write), region=args.region)
-    if args.local:
-        invoke = local_invoker()
-        concurrency = 1  # the handler already uses a process pool
-    else:
-        invoke = lambda_invoker(args.function, args.aws_region, concurrency=args.concurrency)
-        concurrency = args.concurrency
+    return _execute(args, events, skipped + deferred_records, stamp, n_deferred=len(deferred))
 
+
+def _invoker(args: argparse.Namespace) -> tuple[Callable[[dict], dict], int]:
+    """The handler to call for each event and how many at a time."""
+    if args.local:
+        return local_invoker(), 1  # the handler already uses a process pool
+    return lambda_invoker(args.function, args.aws_region, concurrency=args.concurrency), (
+        args.concurrency
+    )
+
+
+def _execute(
+    args: argparse.Namespace,
+    events: list[dict],
+    head: list[dict],
+    stamp: str,
+    *,
+    n_deferred: int = 0,
+) -> int:
+    """Invoke the events, write the report (``head`` records first), print the outcome."""
+    invoke, concurrency = _invoker(args)
     report = args.report or f"run-{args.region.lower()}-{stamp}.json"
     print(f"report: {report}", file=sys.stderr)
     write_report = report_writer(report)
@@ -502,7 +580,7 @@ def main(argv: list[str] | None = None) -> int:
         records.append(r)
         write_report(r)
 
-    for r in skipped + deferred_records:
+    for r in head:
         add(r)
 
     def on_result(r: dict) -> None:
@@ -530,8 +608,46 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 130
-    print(f"{len(results)} groups: {len(failed)} failed, {len(deferred)} deferred", file=sys.stderr)
+    print(f"{len(results)} groups: {len(failed)} failed, {n_deferred} deferred", file=sys.stderr)
     return 1 if failed else 0
+
+
+def _ranges_main(
+    ap: argparse.ArgumentParser, args: argparse.Namespace, st: StoreTarget, target: str, stamp: str
+) -> int:
+    """``--ranges``: a backfill event for every existing group without colour ranges."""
+    if args.dry_run and not (st.is_local or st.credentials):
+        ap.error("--ranges --dry-run needs --write-creds to read the repository's groups")
+    try:
+        repo = open_repository(st, readonly=args.dry_run)
+    except RepositoryNotFoundError as e:
+        ap.error(str(e))
+    existing = existing_groups(repo)
+    todo, skipped = plan_ranges(
+        existing,
+        range_states(repo, existing),
+        overwrite=args.overwrite,
+        patterns=args.groups,
+        max_groups=args.max_groups,
+    )
+    events = [
+        make_ranges_event(
+            g,
+            target=target,
+            region=args.target_region,
+            overwrite=args.overwrite,
+            range_steps=args.range_steps if args.range_steps != DEFAULT_RANGE_STEPS else None,
+            source_root=args.source_root,
+        )
+        for g in todo
+    ]
+    print(f"{len(events)} groups to range, {len(skipped)} skipped", file=sys.stderr)
+    if args.dry_run:
+        for e in events:
+            print(e["group_path"])
+        return 0
+    head = [asdict(GroupRun(g, "skipped", 0, 0.0, reason=r)) for g, r in skipped.items()]
+    return _execute(args, events, head, stamp)
 
 
 if __name__ == "__main__":

@@ -13,12 +13,18 @@ Usage::
     ismip7-virtualize --index index.parquet --region GrIS --target s3://us-west-2.opendata.source.coop/englacial/ismip7/icechunk-gris \\
         --write-creds sc_creds.json
 
+    # backfill colour ranges (actual_range) on the groups already in a repo, one commit per group
+    ismip7-virtualize --ranges --region AIS --target local:/tmp/icechunk-ais
+
 Groups are processed one after another here; Phase C fans the same
 ``commit_group`` out over Lambda. The runner creates the repository and the
 parent groups first (``store.ensure_hierarchy``). An existing group is
 skipped only when its sources digest matches the index and, with
 ``--verify``, it passed verification; otherwise it is rewritten. A group
-that fails verification is deleted again, so a re-run redoes it.
+that fails verification is deleted again, so a re-run redoes it. Between
+opening a group and writing it, ``n`` time steps of every variable are
+sampled for the CF ``actual_range`` attribute (see :mod:`.ranges`;
+``--no-ranges`` skips it, ``--ranges`` backfills existing groups).
 """
 
 from __future__ import annotations
@@ -37,10 +43,19 @@ from pathlib import Path
 from typing import Any
 
 from .conventions import ForcingFile, ForcingKind, parse_key
+from .ranges import (
+    DEFAULT_RANGE_STEPS,
+    apply_ranges,
+    estimate_ranges,
+    plan_ranges,
+    range_group,
+    range_states,
+)
 from .store import (
     SOURCES_ATTR,
     VERIFIED_ATTR,
     CredentialsExpiringError,
+    RepositoryNotFoundError,
     StoreTarget,
     check_credentials_lifetime,
     check_target_region,
@@ -94,9 +109,10 @@ def group_digest(files: list[ForcingFile]) -> str:
 @dataclass
 class GroupRun:
     group_path: str
-    #: written | verified | skipped | failed | dry-run, and in fan-out reports also
-    #: deferred (too big for Lambda), in-flight (still running when the fan-out
-    #: was interrupted) and interrupted (a local run stopped by Ctrl-C)
+    #: written | verified | skipped | failed | dry-run, ranged (a colour-range
+    #: backfill), and in fan-out reports also deferred (too big for Lambda),
+    #: in-flight (still running when the fan-out was interrupted) and
+    #: interrupted (a local run stopped by Ctrl-C)
     status: str
     n_files: int
     seconds: float
@@ -117,9 +133,11 @@ class GroupRun:
     #: the worker's ``os.cpu_count()`` and pool size (to calibrate group sizing)
     cpu_count: int | None = None
     n_workers: int | None = None
-    #: seconds per phase: ``open`` (read the headers and concatenate), ``commit``
-    #: (write, and verify when asked)
+    #: seconds per phase: ``open`` (read the headers and concatenate), ``ranges``
+    #: (sample the colour ranges), ``commit`` (write, and verify when asked)
     timings: dict[str, float] | None = None
+    #: arrays sampled by a colour-range backfill
+    n_vars: int | None = None
 
 
 #: How many notes a ``GroupRun`` carries in ``notes_head``.
@@ -256,11 +274,13 @@ def run_group(
     overwrite: bool = False,
     verify_files: int = 0,
     workers: int = 1,
+    range_steps: int | None = DEFAULT_RANGE_STEPS,
 ) -> GroupRun:
-    """Concatenate, write and optionally verify one group; never raises.
+    """Concatenate, sample the colour ranges, write and optionally verify one group; never raises.
 
     ``workers > 1`` opens the files in that many processes (each with its own
-    source registry, so ``registry`` is then not used).
+    source registry, so ``registry`` is then not used). ``range_steps=None``
+    skips the range sampling.
     """
     t0 = time.time()
     notes: list[str] = []
@@ -274,8 +294,13 @@ def run_group(
         notes = result.notes
         for n in notes:
             logger.info("%s: %s", group_path, n)
+        if range_steps:
+            rr = estimate_ranges(result, n_steps=range_steps)
+            apply_ranges(result.ds, rr)
+            notes.append(rr.summary())  # result.notes: into the group's attribute too
+            timings["ranges"] = round(time.time() - t0 - timings["open"], 1)
         run = commit_group(repo, result, overwrite=overwrite, verify_files=verify_files)
-        timings["commit"] = round(time.time() - t0 - timings["open"], 1)
+        timings["commit"] = round(time.time() - t0 - timings["open"] - timings.get("ranges", 0), 1)
     except Exception as e:  # one bad group must not abort the run or lose the report
         logger.error("%s failed: %s: %s", group_path, type(e).__name__, e)
         run = GroupRun(group_path, "failed", len(files), 0.0, error=f"{type(e).__name__}: {e}")
@@ -283,6 +308,28 @@ def run_group(
     run.cpu_count = os.cpu_count()
     run.n_workers = workers
     run.timings = timings or None
+    run.seconds = round(time.time() - t0, 1)
+    return run
+
+
+def range_existing_group(
+    group_path: str, repo: Any, *, n_steps: int = DEFAULT_RANGE_STEPS
+) -> GroupRun:
+    """Backfill the colour ranges of one stored group in one commit; never raises."""
+    t0 = time.time()
+    notes: list[str] = []
+    try:
+        snap, rr = range_group(repo, group_path, n_steps=n_steps)
+        notes = [f"{r.var}: {r.note}" for r in rr.ranges] + rr.notes
+        run = GroupRun(group_path, "ranged", 0, 0.0, snapshot_id=snap, committed=snap is not None)
+        run.n_vars = len(rr.ranges)
+        run.timings = {"ranges": rr.seconds, "commit": round(time.time() - t0 - rr.seconds, 1)}
+        if not rr.ranges:
+            run.status, run.error = "failed", "no array could be sampled"
+    except Exception as e:
+        logger.error("%s: ranges failed: %s: %s", group_path, type(e).__name__, e)
+        run = GroupRun(group_path, "failed", 0, 0.0, error=f"{type(e).__name__}: {e}")
+    record_notes(run, notes)
     run.seconds = round(time.time() - t0, 1)
     return run
 
@@ -306,7 +353,7 @@ def report_writer(path: str | Path | None) -> Callable[[dict[str, Any]], None]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--index", required=True, help="Parquet index from ismip7-index")
+    ap.add_argument("--index", help="Parquet index from ismip7-index (not needed with --ranges)")
     ap.add_argument("--region", required=True, choices=["AIS", "GrIS"])
     ap.add_argument(
         "--groups",
@@ -337,6 +384,23 @@ def main(argv: list[str] | None = None) -> int:
         "the groups the fan-out defers as too big for Lambda)",
     )
     ap.add_argument("--max-groups", type=int, default=None, help="write at most N groups")
+    ap.add_argument(
+        "--ranges",
+        action="store_true",
+        help="backfill mode: sample the colour range (actual_range) of every array of the "
+        "existing groups through the store, one commit per group; groups whose arrays "
+        "carry one are skipped unless --overwrite",
+    )
+    ap.add_argument(
+        "--range-steps",
+        type=int,
+        default=DEFAULT_RANGE_STEPS,
+        metavar="N",
+        help="time steps sampled per variable for actual_range",
+    )
+    ap.add_argument(
+        "--no-ranges", action="store_true", help="do not sample colour ranges when writing"
+    )
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--report", help="JSON run report, rewritten as each group finishes")
     ap.add_argument("-v", "--verbose", action="store_true")
@@ -345,6 +409,10 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO if args.verbose else logging.WARNING,
         format="%(levelname)s %(name)s: %(message)s",
     )
+    if args.ranges:
+        return _ranges_main(ap, args)
+    if not args.index:
+        ap.error("--index is required (except with --ranges)")
 
     groups = load_groups(args.index, region=args.region, patterns=args.groups)
     print(f"{len(groups)} groups, {sum(len(v) for v in groups.values())} files", file=sys.stderr)
@@ -355,22 +423,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{gp}\t{len(files)} files\t{sum(f.size or 0 for f in files) / 1e9:.1f} GB")
         return 0
 
-    target = (
-        StoreTarget.parse(args.target) if args.target else StoreTarget.region_default(args.region)
-    )
-    try:
-        check_target_region(target, args.region)
-    except ValueError as e:
-        ap.error(str(e))
-    if args.write_creds and not target.is_local:
-        creds = load_sc_creds(args.write_creds)
-        try:  # fail now, not at the first commit
-            check_credentials_lifetime(
-                creds, datetime.now(UTC) + timedelta(minutes=20), source=args.write_creds
-            )
-        except CredentialsExpiringError as e:
-            ap.error(str(e))
-        target = StoreTarget(url=target.url, region=target.region, credentials=creds)
+    target = _open_target(ap, args)
     repo = open_repository(target, create=True)
     plan = plan_groups(
         groups,
@@ -389,7 +442,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"skip {gp} ({reason})", file=sys.stderr)
     for gp, (files, overwrite, reason) in plan.write.items():
         run = run_group(
-            gp, files, repo, overwrite=overwrite, verify_files=args.verify, workers=args.workers
+            gp,
+            files,
+            repo,
+            overwrite=overwrite,
+            verify_files=args.verify,
+            workers=args.workers,
+            range_steps=None if args.no_ranges else args.range_steps,
         )
         if reason != "new":
             run.reason = reason
@@ -397,6 +456,66 @@ def main(argv: list[str] | None = None) -> int:
         report(asdict(run))
         print(
             f"{run.status:8s} {gp} {run.n_files} files {run.seconds}s {run.error or ''}",
+            file=sys.stderr,
+        )
+    failed = [r for r in runs if r.status == "failed"]
+    print(f"{len(runs)} groups: {len(failed)} failed", file=sys.stderr)
+    return 1 if failed else 0
+
+
+def _open_target(ap: argparse.ArgumentParser, args: argparse.Namespace) -> StoreTarget:
+    """The target of a run with its credentials checked (``ap.error`` on a bad one)."""
+    target = (
+        StoreTarget.parse(args.target) if args.target else StoreTarget.region_default(args.region)
+    )
+    try:
+        check_target_region(target, args.region)
+    except ValueError as e:
+        ap.error(str(e))
+    if args.write_creds and not target.is_local:
+        creds = load_sc_creds(args.write_creds)
+        try:  # fail now, not at the first commit
+            check_credentials_lifetime(
+                creds, datetime.now(UTC) + timedelta(minutes=20), source=args.write_creds
+            )
+        except CredentialsExpiringError as e:
+            ap.error(str(e))
+        target = StoreTarget(url=target.url, region=target.region, credentials=creds)
+    return target
+
+
+def _ranges_main(ap: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    """``--ranges``: backfill ``actual_range`` on the existing groups, serially."""
+    target = _open_target(ap, args)
+    try:
+        repo = open_repository(target)
+    except RepositoryNotFoundError as e:
+        ap.error(str(e))
+    existing = existing_groups(repo)
+    todo, skipped = plan_ranges(
+        existing,
+        range_states(repo, existing),
+        overwrite=args.overwrite,
+        patterns=args.groups,
+        max_groups=args.max_groups,
+    )
+    print(f"{len(todo)} groups to range, {len(skipped)} skipped", file=sys.stderr)
+    if args.dry_run:
+        for gp in todo:
+            print(gp)
+        return 0
+    report = report_writer(args.report)
+    runs: list[GroupRun] = []
+    for gp, reason in skipped.items():
+        run = GroupRun(gp, "skipped", 0, 0.0, reason=reason)
+        runs.append(run)
+        report(asdict(run))
+    for gp in todo:
+        run = range_existing_group(gp, repo, n_steps=args.range_steps)
+        runs.append(run)
+        report(asdict(run))
+        print(
+            f"{run.status:8s} {gp} {run.n_vars or 0} arrays {run.seconds}s {run.error or ''}",
             file=sys.stderr,
         )
     failed = [r for r in runs if r.status == "failed"]

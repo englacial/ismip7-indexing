@@ -973,15 +973,42 @@ def _scalar(v: Any) -> Any:
     return None if v is None else np.asarray(v).ravel()[0]
 
 
+def decoded_steps(dset: Any, steps: Iterable[int]) -> list[np.ndarray]:
+    """Read ``steps`` along axis 0 of an h5py dataset, decoded like xarray decodes the store.
+
+    Values equal to ``_FillValue`` (or the HDF5 fill value when there is no
+    such attribute) or ``missing_value`` become NaN, then
+    ``scale_factor``/``add_offset`` apply.
+    """
+    attrs = dset.attrs
+    fills = [
+        _scalar(attrs.get("_FillValue", dset.fillvalue)),
+        _scalar(attrs.get("missing_value")),
+    ]
+    scale, offset = _scalar(attrs.get("scale_factor")), _scalar(attrs.get("add_offset"))
+    out = []
+    for k in steps:
+        raw = np.asarray(dset[k])
+        mask = np.zeros(raw.shape, bool)
+        for fv in fills:
+            if fv is not None:
+                mask |= np.isnan(raw) if np.isnan(fv) else raw == fv
+        val = raw.astype(raw.dtype if raw.dtype.kind == "f" else np.float64)
+        if scale is not None:
+            val = val * scale
+        if offset is not None:
+            val = val + offset
+        val[mask] = np.nan
+        out.append(val)
+    return out
+
+
 def _source_steps(
     f: BinaryIO, variable: str, n_steps: int, rng: np.random.Generator
 ) -> tuple[int, list[int], list[np.ndarray]]:
     """Pick ``n_steps`` random steps along axis 0 of ``variable`` and read them decoded.
 
-    Returns the axis length, the steps and the slabs. Decoded like xarray
-    decodes the stored array: values equal to ``_FillValue`` (or the HDF5
-    fill value when there is no such attribute) or ``missing_value`` become
-    NaN, then ``scale_factor``/``add_offset`` apply.
+    Returns the axis length, the steps and the slabs (see :func:`decoded_steps`).
     """
     import h5py
 
@@ -989,26 +1016,7 @@ def _source_steps(
         dset = h[variable]
         n = int(dset.shape[0])
         steps = sorted(int(k) for k in rng.choice(n, min(n_steps, n), replace=False))
-        attrs = dset.attrs
-        fills = [
-            _scalar(attrs.get("_FillValue", dset.fillvalue)),
-            _scalar(attrs.get("missing_value")),
-        ]
-        scale, offset = _scalar(attrs.get("scale_factor")), _scalar(attrs.get("add_offset"))
-        out = []
-        for k in steps:
-            raw = np.asarray(dset[k])
-            mask = np.zeros(raw.shape, bool)
-            for fv in fills:
-                if fv is not None:
-                    mask |= np.isnan(raw) if np.isnan(fv) else raw == fv
-            val = raw.astype(raw.dtype if raw.dtype.kind == "f" else np.float64)
-            if scale is not None:
-                val = val * scale
-            if offset is not None:
-                val = val + offset
-            val[mask] = np.nan
-            out.append(val)
+        out = decoded_steps(dset, steps)
     return n, steps, out
 
 
@@ -1141,6 +1149,7 @@ __all__ = [
     "check_credentials_lifetime",
     "check_target_region",
     "container_credentials",
+    "decoded_steps",
     "delete_group",
     "ensure_hierarchy",
     "existing_groups",

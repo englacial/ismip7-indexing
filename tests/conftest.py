@@ -38,7 +38,7 @@ def write_forcing_file(
     coord_dtype=np.int64,
     coord_offset_m: float = 0.0,
     extra_var: bool = False,
-    chunks: tuple[int, int, int] | None = None,
+    chunks: tuple[int, ...] | None = None,
     seed: int = 0,
     time_dtype: str = "f8",
     fill_value: float = NC_FILL,
@@ -51,6 +51,7 @@ def write_forcing_file(
     y_descending: bool = False,
     global_attrs: dict | None = None,
     complevel: int = 1,
+    n_z: int | None = None,
 ) -> Path:
     """Write a NetCDF4 file shaped like an ISMIP7 monthly forcing file.
 
@@ -58,7 +59,8 @@ def write_forcing_file(
     section 1b): ``coord_dtype`` float32/int32/int64, x/y with ``_FillValue =
     NaN`` (``coord_fill_nan``), int64 time (``time_dtype="i8"``), 2-D lat/lon
     and bounds variables, a ``missing_value`` attribute. ``fill_cell`` writes
-    the fill value at ``[0, 0, 0]``.
+    the fill value at ``[0, 0, 0]``. ``n_z`` writes a 4-D ocean-shaped
+    variable ``(time, z, y, x)`` with that many depth levels.
     """
     import netCDF4
 
@@ -74,6 +76,12 @@ def write_forcing_file(
         nc.createDimension("time", None)
         nc.createDimension("y", grid.ny)
         nc.createDimension("x", grid.nx)
+        if n_z:
+            nc.createDimension("z", n_z)
+            z = nc.createVariable("z", "f8", ("z",))
+            z.units = "m"
+            z.positive = "down"
+            z[:] = np.arange(n_z, dtype="f8") * 60.0
         t = nc.createVariable("time", time_dtype, ("time",))
         t.units = time_units
         t.calendar = calendar
@@ -110,14 +118,16 @@ def write_forcing_file(
         for k, v in (crs_attrs or grid.cf_grid_mapping_attrs()).items():
             if k != "crs_wkt":
                 setattr(crs, k, v)
+        dims = ("time", "z", "y", "x") if n_z else ("time", "y", "x")
+        shape = (n_time, n_z, grid.ny, grid.nx) if n_z else (n_time, grid.ny, grid.nx)
         v = nc.createVariable(
             variable,
             "f4",
-            ("time", "y", "x"),
+            dims,
             zlib=True,
             complevel=complevel,
             shuffle=True,
-            chunksizes=chunks or (1, grid.ny, grid.nx),
+            chunksizes=chunks or (1, *shape[1:]),
             fill_value=np.float32(fill_value),
         )
         v.units = "kg m-2 s-1"
@@ -127,13 +137,13 @@ def write_forcing_file(
             v.coordinates = "lat lon"
         if missing_value is not None:
             v.missing_value = np.float32(missing_value)
-        data = rng.standard_normal((n_time, grid.ny, grid.nx)).astype("f4")
+        data = rng.standard_normal(shape).astype("f4")
         if fill_cell:
-            data[0, 0, 0] = fill_value
+            data[(0,) * len(shape)] = fill_value
         v.set_auto_mask(False)
         v[:] = data
         if extra_var:
-            e = nc.createVariable("extra", "f4", ("time", "y", "x"))
+            e = nc.createVariable("extra", "f4", dims)
             e[:] = 1.0
         nc.title = f"{variable} synthetic"
         nc.history = "synthetic"

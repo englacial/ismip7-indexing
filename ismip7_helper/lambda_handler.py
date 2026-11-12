@@ -18,6 +18,14 @@ Event::
       "verify": 1
     }
 
+``"ranges": false`` skips the colour-range sampling that otherwise runs
+between opening the files and the write (``"range_steps": N`` changes the
+sample size). A backfill event, ``{"group_path": ..., "target": ...,
+"ranges": true}`` without ``keys``, samples an existing group's arrays
+through the store instead and commits their ``actual_range`` attributes
+(see :mod:`.ranges`); it returns ``status: "ranged"`` (or ``skipped`` when
+every array already carries one and ``overwrite`` is not set).
+
 For local runs (``ismip7-fanout --local --source-root DIR``) the event may
 also carry ``"source_root": DIR``: every key is then read from
 ``file://DIR/<key>`` and the repository gets a virtual chunk container for
@@ -67,6 +75,14 @@ logger = logging.getLogger(__name__)
 
 #: After opening the files, the write is not started with less time left than this.
 DEADLINE_MARGIN_S = 90
+#: Colour-range sampling at write time gets at most this long per group ...
+RANGES_MAX_S = 120.0
+#: ... and at most this share of the time left after the deadline margin
+#: (the commit and verification still have to fit: the largest groups take
+#: 250-430 s for those).
+RANGES_SHARE = 0.2
+#: Below this budget the sampling is skipped with a note (a backfill does it later).
+RANGES_MIN_S = 10.0
 
 
 class SecretCredentials:
@@ -239,6 +255,154 @@ def _remaining_s(context: Any) -> float | None:
     return context.get_remaining_time_in_millis() / 1000
 
 
+def ranges_budget_s(left: float | None) -> float | None:
+    """Seconds the write-time range sampling may take with ``left`` seconds remaining.
+
+    ``None`` without a deadline (no limit); otherwise the smaller of
+    ``RANGES_MAX_S`` and ``RANGES_SHARE`` of what remains past the deadline
+    margin, which can be 0 (skip).
+    """
+    if left is None:
+        return None
+    return max(0.0, min(RANGES_MAX_S, RANGES_SHARE * (left - DEADLINE_MARGIN_S)))
+
+
+def _sample_ranges(
+    event: dict[str, Any],
+    result: Any,
+    *,
+    left: float | None,
+    timings: dict[str, float],
+    notes: list[str],
+) -> None:
+    """Write-time phase between open and commit: set ``actual_range`` on the result's arrays.
+
+    Skipped with a note when the event says ``"ranges": false`` or the time
+    budget is under ``RANGES_MIN_S``; never fails the group.
+    """
+    from .ranges import DEFAULT_RANGE_STEPS, apply_ranges, estimate_ranges
+
+    if not event.get("ranges", True):
+        return
+    budget = ranges_budget_s(left)
+    if budget is not None and budget < RANGES_MIN_S:
+        notes.append(f"colour ranges skipped: {left:.0f} s left (backfill them with --ranges)")
+        timings["ranges"] = 0.0
+        return
+    t1 = time.time()
+    rr = estimate_ranges(
+        result,
+        n_steps=int(event.get("range_steps") or DEFAULT_RANGE_STEPS),
+        time_budget_s=budget,
+    )
+    apply_ranges(result.ds, rr)
+    notes.append(rr.summary())
+    timings["ranges"] = round(time.time() - t1, 1)
+
+
+def _run_ranges_event(
+    event: dict[str, Any], *, repo: Any, context: Any, timings: dict[str, float], notes: list[str]
+) -> Any:
+    """Backfill: sample an existing group through the store and commit its ranges."""
+    from .pipeline import GroupRun
+    from .ranges import DEFAULT_RANGE_STEPS, range_group, range_states
+
+    gp = event["group_path"]
+    left = _remaining_s(context)
+    if repo is None:
+        until = datetime.now(UTC) + timedelta(seconds=left or 0)
+        repo = open_repository(target_from_event(event, needed_until=until))
+    state = range_states(repo, [gp])[gp]
+    n_files = int(state.attrs.get("ismip7_n_source_files") or 0)
+    if not state.arrays:
+        return GroupRun(gp, "skipped", n_files, 0.0, reason="no time-dependent arrays")
+    if state.complete and not event.get("overwrite", False):
+        return GroupRun(gp, "skipped", n_files, 0.0, reason="ranged")
+    t1 = time.time()
+    snap, rr = range_group(
+        repo,
+        gp,
+        n_steps=int(event.get("range_steps") or DEFAULT_RANGE_STEPS),
+        time_budget_s=(left - DEADLINE_MARGIN_S) if left is not None else None,
+    )
+    timings["ranges"] = rr.seconds
+    timings["commit"] = round(time.time() - t1 - rr.seconds, 1)
+    notes.extend([f"{r.var}: {r.note}" for r in rr.ranges] + rr.notes)
+    run = GroupRun(gp, "ranged", n_files, 0.0, snapshot_id=snap, committed=snap is not None)
+    run.n_vars = len(rr.ranges)
+    if not rr.ranges:
+        run.status, run.error = "failed", "no array could be sampled"
+    return run
+
+
+def _run_write_event(
+    event: dict[str, Any],
+    *,
+    repo: Any,
+    registry: Any,
+    context: Any,
+    t0: float,
+    n: int,
+    timings: dict[str, float],
+) -> tuple[Any, list[str]]:
+    """The write path: open, sample ranges, commit, verify. Returns the run and the notes."""
+    from .pipeline import GroupRun, commit_group
+
+    group_path = event["group_path"]
+    files = _files_from_event(event)
+    if {f.group_path for f in files} != {group_path}:
+        raise VirtualizeError(f"keys do not all belong to {group_path}")
+    if repo is None:
+        left = _remaining_s(context)
+        until = datetime.now(UTC) + timedelta(seconds=left or 0)
+        repo = open_repository(target_from_event(event, needed_until=until))  # never creates
+    urls = _urls(event)
+    cpu0 = _cpu_seconds()
+    result = None
+    try:
+        result = concat_group(
+            files,
+            registry,
+            urls=urls or None,
+            max_workers=n,
+            use_processes=n > 1 and registry is None,
+        )
+    finally:
+        # recorded even when the open fails, so a failed run still profiles
+        # (without the workers' share then: they report it at their end)
+        _record_open(timings, t0, cpu0, n, result.worker_cpu_seconds if result else None)
+    notes = result.notes
+    for note in notes:
+        logger.info("%s: %s", group_path, note)
+    left = _remaining_s(context)
+    if left is not None:
+        timings["remaining_after_open"] = round(left, 1)
+    if left is not None and left < DEADLINE_MARGIN_S:
+        logger.error(
+            "%s: %.0f s left after opening %d files in %.0f s; not starting the write",
+            group_path,
+            left,
+            len(files),
+            timings["open"],
+        )
+        return GroupRun(group_path, "failed", len(files), 0.0, error="deadline"), notes
+    # notes is result.notes: the range summary lands in the group's attribute too
+    _sample_ranges(event, result, left=left, timings=timings, notes=notes)
+    left = _remaining_s(context)
+    cpu1 = _cpu_seconds()
+    run = commit_group(
+        repo,
+        result,
+        overwrite=bool(event.get("overwrite", False)),
+        verify_files=int(event.get("verify", 0)),
+        # a stalled verification read must not take the whole 900 s
+        verify_timeout_s=(left - DEADLINE_MARGIN_S) if left is not None else None,
+    )
+    timings["commit"] = round(time.time() - t0 - timings["open"] - timings.get("ranges", 0.0), 1)
+    timings["commit_cpu"] = round(_cpu_seconds() - cpu1, 1)  # single-threaded tail
+    return run, notes
+
+
 def run_event(
     event: dict[str, Any], *, repo: Any = None, registry: Any = None, context: Any = None
 ) -> dict[str, Any]:
@@ -248,7 +412,7 @@ def run_event(
     opens the files in threads, since it cannot cross into processes).
     ``context`` is the Lambda context, for the deadline checks.
     """
-    from .pipeline import GroupRun, commit_group, record_notes
+    from .pipeline import GroupRun, record_notes
 
     t0 = time.time()
     group_path = event.get("group_path", "?") if isinstance(event, dict) else "?"
@@ -261,60 +425,18 @@ def run_event(
             raise ValueError(f"event must be a JSON object, got {type(event).__name__}")
         if "group_path" not in event:
             raise ValueError(f"event has no group_path (keys: {sorted(event)})")
-        files = _files_from_event(event)
-        if {f.group_path for f in files} != {group_path}:
-            raise VirtualizeError(f"keys do not all belong to {group_path}")
-        if repo is None:
-            left = _remaining_s(context)
-            until = datetime.now(UTC) + timedelta(seconds=left or 0)
-            repo = open_repository(target_from_event(event, needed_until=until))  # never creates
-        urls = _urls(event)
-        cpu0 = _cpu_seconds()
-        result = None
-        try:
-            result = concat_group(
-                files,
-                registry,
-                urls=urls or None,
-                max_workers=n,
-                use_processes=n > 1 and registry is None,
-            )
-        finally:
-            # recorded even when the open fails, so a failed run still profiles
-            # (without the workers' share then: they report it at their end)
-            _record_open(timings, t0, cpu0, n, result.worker_cpu_seconds if result else None)
-        notes = result.notes
-        for note in notes:
-            logger.info("%s: %s", group_path, note)
-        left = _remaining_s(context)
-        if left is not None:
-            timings["remaining_after_open"] = round(left, 1)
-        if left is not None and left < DEADLINE_MARGIN_S:
-            logger.error(
-                "%s: %.0f s left after opening %d files in %.0f s; not starting the write",
-                group_path,
-                left,
-                len(files),
-                timings["open"],
-            )
-            run = GroupRun(group_path, "failed", len(files), 0.0, error="deadline")
+        if event.get("ranges") and not event.get("keys"):
+            run = _run_ranges_event(event, repo=repo, context=context, timings=timings, notes=notes)
         else:
-            cpu1 = _cpu_seconds()
-            run = commit_group(
-                repo,
-                result,
-                overwrite=bool(event.get("overwrite", False)),
-                verify_files=int(event.get("verify", 0)),
-                # a stalled verification read must not take the whole 900 s
-                verify_timeout_s=(left - DEADLINE_MARGIN_S) if left is not None else None,
+            run, notes = _run_write_event(
+                event, repo=repo, registry=registry, context=context, t0=t0, n=n, timings=timings
             )
-            timings["commit"] = round(time.time() - t0 - timings["open"], 1)
-            timings["commit_cpu"] = round(_cpu_seconds() - cpu1, 1)  # single-threaded tail
     except Exception as e:  # the fan-out must get a record back, not a stack trace
         logger.exception("%s failed", group_path)
         run = GroupRun(group_path, "failed", n_keys, 0.0, error=f"{type(e).__name__}: {e}")
     record_notes(run, notes)
-    run.reason = event.get("reason") if isinstance(event, dict) else None
+    if isinstance(event, dict) and event.get("reason"):
+        run.reason = event["reason"]
     run.cpu_count = os.cpu_count()
     run.n_workers = n
     run.timings = timings or None
@@ -343,9 +465,13 @@ def handler(event: Any, context: Any = None) -> dict[str, Any]:
 
 __all__ = [
     "DEADLINE_MARGIN_S",
+    "RANGES_MAX_S",
+    "RANGES_MIN_S",
+    "RANGES_SHARE",
     "SecretCredentials",
     "configure_logging",
     "handler",
+    "ranges_budget_s",
     "run_event",
     "target_from_event",
     "workers",

@@ -72,6 +72,84 @@ def test_run_event_writes_and_verifies(synthetic_root, tmp_path, monkeypatch):
     assert found["CESM2-WACCM/historical/SDBN1/32000m"][VERIFIED_ATTR] == out["snapshot_id"]
 
 
+def test_run_event_samples_colour_ranges_before_the_write(synthetic_root, tmp_path, monkeypatch):
+    from ismip7_helper.store import open_group
+
+    monkeypatch.setenv("ISMIP7_WORKERS", "1")
+    keys, urls = _make_group(synthetic_root)
+    ev = _event(synthetic_root, tmp_path, keys, urls, range_steps=5)
+    assert ev["range_steps"] == 5 and "ranges" not in ev  # on by default
+    repo = _prepare(ev)
+    out = run_event(ev, context=_Ctx(600_000))
+    assert out["status"] == "written", out["error"]
+    assert set(out["timings"]) >= {"open", "ranges", "commit"}
+    assert any(n.startswith("colour ranges: 2 of 2 variables ranged") for n in out["notes_head"])
+    ds = open_group(repo, HIST)
+    assert ds["acabf"].attrs["ismip7_actual_range"] == "sampled from 5 of 24 time steps"
+    low, high = ds["tas"].attrs["actual_range"]
+    assert low < 0 < high
+    assert any(n.startswith("colour ranges:") for n in ds.attrs["ismip7_notes"])
+
+    # "ranges": false leaves the arrays alone; a short budget skips with a note
+    ev = _event(synthetic_root, tmp_path, keys, urls, overwrite=True, ranges=False)
+    assert ev["ranges"] is False
+    out = run_event(ev)
+    assert out["status"] == "written" and "ranges" not in out["timings"]
+    assert "actual_range" not in open_group(repo, HIST)["acabf"].attrs
+    ev = _event(synthetic_root, tmp_path, keys, urls, overwrite=True)
+    out = run_event(ev, context=_Ctx(120_000))  # 30 s past the margin: a 6 s budget
+    assert out["status"] == "written" and out["timings"]["ranges"] == 0.0
+    assert any(n.startswith("colour ranges skipped: ") for n in out["notes_head"])
+
+
+def test_ranges_budget():
+    from ismip7_helper.lambda_handler import ranges_budget_s
+
+    assert ranges_budget_s(None) is None
+    assert ranges_budget_s(890) == 120.0  # capped
+    assert ranges_budget_s(290) == pytest.approx(40.0)  # a fifth of what is left past the margin
+    assert ranges_budget_s(60) == 0.0
+
+
+def test_run_event_backfills_ranges_through_the_store(synthetic_root, tmp_path, monkeypatch):
+    from ismip7_helper.fanout import make_ranges_event
+    from ismip7_helper.store import open_group
+
+    monkeypatch.setenv("ISMIP7_WORKERS", "1")
+    keys, urls = _make_group(synthetic_root)
+    ev = _event(synthetic_root, tmp_path, keys, urls, ranges=False)
+    repo = _prepare(ev)
+    assert run_event(ev)["status"] == "written"
+    n_commits = len(list(repo.ancestry(branch="main")))
+
+    bev = make_ranges_event(HIST, target=ev["target"], range_steps=6)
+    bev["local_containers"] = ev["local_containers"]
+    assert "keys" not in bev and bev["ranges"] is True
+    out = run_event(bev, context=_Ctx(600_000))
+    assert out["status"] == "ranged", out["error"]
+    assert out["n_vars"] == 2 and out["n_files"] == 4 and out["committed"] and out["snapshot_id"]
+    assert set(out["timings"]) == {"ranges", "commit"} and out["n_notes"] == 2
+    assert out["notes_head"][0] == "acabf: sampled from 6 of 24 time steps through the store"
+    assert json.dumps(out)
+    assert len(list(repo.ancestry(branch="main"))) == n_commits + 1
+    ds = open_group(repo, HIST)
+    assert len(ds["acabf"].attrs["actual_range"]) == 2 and "actual_range" in ds["tas"].attrs
+
+    # a second backfill skips the group; --overwrite redoes it
+    out = run_event(bev)
+    assert out["status"] == "skipped" and out["reason"] == "ranged"
+    assert len(list(repo.ancestry(branch="main"))) == n_commits + 1
+    out = run_event({**bev, "overwrite": True})  # the same sample: nothing to commit
+    assert out["status"] == "ranged" and not out["committed"] and out["snapshot_id"] is None
+    assert len(list(repo.ancestry(branch="main"))) == n_commits + 1
+    out = run_event({**bev, "overwrite": True, "range_steps": 3})
+    assert out["status"] == "ranged" and out["committed"]
+    assert len(list(repo.ancestry(branch="main"))) == n_commits + 2
+    # an unknown group is a failure, not a stack trace
+    out = run_event({**bev, "group_path": "no/such/group/8000m"})
+    assert out["status"] == "failed" and "no such group" in out["error"]
+
+
 def test_run_event_deletes_a_group_that_fails_verification(synthetic_root, tmp_path, monkeypatch):
     import ismip7_helper.store as store
 
@@ -528,6 +606,62 @@ def test_fanout_max_groups_counts_groups_to_write(synthetic_root, tmp_path, monk
     assert status() == {HIST: "skipped", SSP: "written"}
 
 
+def test_fanout_ranges_plans_only_groups_without_ranges(
+    synthetic_root, tmp_path, monkeypatch, capsys
+):
+    """``--ranges``: a dry run lists the groups lacking actual_range; a local run backfills them."""
+    from ismip7_helper.store import open_group
+
+    monkeypatch.setenv("ISMIP7_WORKERS", "1")
+    index = _two_group_index(synthetic_root, tmp_path)
+    repo, report = tmp_path / "repo", tmp_path / "run.json"
+    # HIST written without ranges (an old group), SSP with them
+    assert _local_fanout(index, synthetic_root, repo, report, "--groups", HIST, "--no-ranges") == 0
+    assert _local_fanout(index, synthetic_root, repo, report, "--groups", SSP) == 0
+    capsys.readouterr()
+
+    def ranges(*extra):
+        return fanout_main(
+            [
+                "--region",
+                "AIS",
+                "--target",
+                f"local:{repo}",
+                "--local",
+                "--source-root",
+                str(synthetic_root),
+                "--report",
+                str(report),
+                "--ranges",
+                *extra,
+            ]
+        )
+
+    assert ranges("--dry-run") == 0
+    out = capsys.readouterr()
+    assert out.out.strip() == HIST and "1 groups to range, 1 skipped" in out.err
+    assert ranges("--dry-run", "--overwrite") == 0
+    assert capsys.readouterr().out.split() == [HIST, SSP]
+
+    assert ranges() == 0
+    runs = {r["group_path"]: r for r in json.loads(report.read_text())}
+    assert runs[HIST]["status"] == "ranged" and runs[HIST]["n_vars"] == 2
+    assert runs[SSP]["status"] == "skipped" and runs[SSP]["reason"] == "ranged"
+    store = open_repository(StoreTarget.parse(f"local:{repo}"))
+    ds = open_group(store, HIST)
+    assert (
+        ds["acabf"].attrs["ismip7_actual_range"]
+        == "sampled from 16 of 24 time steps through the store"
+    )
+    assert (
+        open_group(store, SSP)["acabf"].attrs["ismip7_actual_range"]
+        == "sampled from 12 of 12 time steps"
+    )
+    # now nothing is left to do
+    assert ranges("--dry-run") == 0
+    assert capsys.readouterr().out.strip() == ""
+
+
 def test_fanout_lambda_mode_defers_big_groups(synthetic_root, tmp_path, monkeypatch, capsys):
     """An S3 target: credentials checked, big groups deferred, the rest invoked."""
     from datetime import UTC, datetime, timedelta
@@ -683,7 +817,9 @@ def test_handler_logs_notes_at_info_under_a_preinstalled_root_handler(
         root.handlers, level = saved
         root.setLevel(level)
     assert out["status"] == "written", out["error"]
-    assert out["n_notes"] == 1 and "dropped extra data variables" in out["notes_head"][0]
+    # the normalisation note, then the colour-range summary
+    assert out["n_notes"] == 2 and "dropped extra data variables" in out["notes_head"][0]
+    assert out["notes_head"][1].startswith("colour ranges: 1 of 1 variables ranged")
     assert any(
         r.levelno == logging.INFO and "dropped extra data variables" in r.getMessage()
         for r in records

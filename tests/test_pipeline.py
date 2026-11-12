@@ -175,9 +175,32 @@ def test_pipeline_refuses_the_other_regions_repo(tmp_path):
         )
 
 
+def test_pipeline_ranges_backfills_a_local_repo(local_run, capsys):
+    from ismip7_helper.store import open_group
+
+    run, repo, _ = local_run
+    rc, runs = run("--no-ranges")
+    assert rc == 0 and {r["status"] for r in runs.values()} == {"written"}
+    assert "actual_range" not in open_group(repo(), HIST)["acabf"].attrs
+    rc, runs = run("--ranges", "--dry-run")
+    assert rc == 0 and capsys.readouterr().out.split() == [HIST, SSP]
+    rc, runs = run("--ranges", "--range-steps", "3")
+    assert rc == 0 and {g: r["status"] for g, r in runs.items()} == {HIST: "ranged", SSP: "ranged"}
+    assert runs[HIST]["n_vars"] == 1 and set(runs[HIST]["timings"]) == {"ranges", "commit"}
+    ds = open_group(repo(), HIST)
+    assert (
+        ds["acabf"].attrs["ismip7_actual_range"]
+        == "sampled from 3 of 24 time steps through the store"
+    )
+    rc, runs = run("--ranges")
+    assert rc == 0 and {g: r["reason"] for g, r in runs.items()} == {HIST: "ranged", SSP: "ranged"}
+
+
 def test_pipeline_workers_open_files_in_processes(local_run):
     run, _, _ = local_run
     rc, runs = run("--workers", "2")
     assert rc == 0 and {r["status"] for r in runs.values()} == {"written"}
     assert {r["n_workers"] for r in runs.values()} == {2}
-    assert all(r["cpu_count"] and set(r["timings"]) == {"open", "commit"} for r in runs.values())
+    assert all(
+        r["cpu_count"] and set(r["timings"]) == {"open", "ranges", "commit"} for r in runs.values()
+    )

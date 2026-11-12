@@ -280,8 +280,11 @@ def test_prepare_for_write_fixes_legacy_coordinates():
 
 
 def test_write_read_verify_roundtrip(local_group, local_target, synthetic_root):
+    from ismip7_helper.ranges import apply_ranges, estimate_ranges
+
     result, keys = local_group
     repo = open_repository(local_target, create=True)
+    apply_ranges(result.ds, estimate_ranges(result, n_steps=4))  # what the runners do
     wr = write_group(repo, result)
     assert wr.group_path == "CESM2-WACCM/historical/SDBN1/32000m" and wr.n_files == 4
     assert wr.nrefs == 24 + 6  # acabf one chunk per step, tas chunks of 4 steps
@@ -303,6 +306,11 @@ def test_write_read_verify_roundtrip(local_group, local_target, synthetic_root):
         ds["crs"].attrs["epsg_code"] == "EPSG:3031" and ds["acabf"].attrs["grid_mapping"] == "crs"
     )
     assert ds.attrs["ismip7_group"] == wr.group_path
+    # the sampled colour range went into the same commit, as plain floats
+    for var in ("acabf", "tas"):
+        low, high = ds[var].attrs["actual_range"]
+        assert type(low) is float and low < 0 < high
+        assert ds[var].attrs["ismip7_actual_range"] == "sampled from 4 of 24 time steps"
     # the fill cell written at [0, 0, 0] of the 1851 acabf file reads back masked
     assert np.isnan(ds["acabf"].values[12, 0, 0]) and np.isfinite(ds["acabf"].values[12, 0, 1])
     assert float(ds["acabf"].encoding["_FillValue"]) == pytest.approx(9.96921e36)

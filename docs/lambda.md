@@ -279,6 +279,37 @@ family as one multi-resolution dataset. Workers never write the family group
 attribute in one commit (idempotent; `--dry-run` lists the families). The
 catalog has one entry per level group and one per family with several levels.
 
+**Colour range.** The source files carry no range metadata, so a viewer
+that colours one time slice at a time recomputes its colour range per slice
+and the colour bar drifts as the user scrubs; gridlook seeds a fixed range
+from a variable's CF `actual_range` attribute instead. Between opening a
+group's files and writing it, the handler samples 16 time steps of every
+time-dependent variable (spread evenly over the axis, first and last
+included; `time`, `time_annual` or a climatology's `month`), reads each from
+its source file with the same ranged reads verification uses (a natively
+stored step from its file too; an ocean variable's step is the whole
+column), masks the fill value, NaN and `missing_value`, and sets
+`actual_range = [low, high]` plus `ismip7_actual_range = "sampled from 16 of
+3432 time steps"` on the array, in the same commit as the write. A variable
+with no finite value in the sample gets the note only. Nothing is padded:
+the viewer clips values outside the range, which is fine for colouring. The
+phase is recorded as `timings["ranges"]` and gets at most 120 s or a fifth
+of the time left after the deadline margin, whichever is smaller; with
+under 10 s it is skipped with a note (`"ranges": false` in the event, or
+`--no-ranges`, turns it off). A 2 km AIS variable costs about 16 ranged
+reads of a 37 MB step (a few seconds in-region), an 8 km one a fraction of
+that, and an ocean variable 16 columns of 30 levels. Groups written before
+this existed, or whose sampling was skipped, are backfilled through the
+store: `ismip7-fanout --ranges --region AIS --function ismip7-virtualize
+--write-creds sc_creds.json` sends `{"group_path", "target", "ranges":
+true}` for every existing group whose arrays lack the attribute
+(`--overwrite` redoes them all, `--dry-run` lists them), the handler
+samples the same steps through the virtual references and commits the
+attributes once per group (`status: "ranged"`, `n_vars`), and
+`ismip7-virtualize --ranges --target local:...` does the same serially for
+a local repo. Multiscales families need nothing: the attribute is per
+array, and each resolution level samples its own range.
+
 **Re-index before every pass.** The source files change under the store: on
 2026-11-06 the provider replaced the 2300 files of four temperature variables
 in the MRI-ESM2-0 ssp585 products with one-step files, after two of those

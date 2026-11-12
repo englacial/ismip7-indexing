@@ -8,7 +8,7 @@ call, for xarray's ``zarr`` engine and for ``rustytree``::
 
     dt = open_store("AIS")                                   # DataTree, engine="zarr"
     dt = open_store("AIS", engine="rustytree")               # same, via rustytree
-    ds = open_group("AIS", "CESM2-WACCM/ssp585/SDBN1/8000m") # one group as a Dataset
+    ds = open_group("AIS", "CESM2-WACCM/ssp585/SDBN1/8000m") # one level as a Dataset
 
 ``ISMIP7_STORE_<REGION>`` (e.g. ``ISMIP7_STORE_AIS=local:/path/icechunk-ais``)
 overrides the production location, which is how the notebooks run against a
@@ -56,6 +56,7 @@ def open_store(
 ) -> xr.DataTree:
     """Open a region's whole store as a DataTree with ``engine="zarr"`` or ``"rustytree"``."""
     session = open_session(region, ref)
+    kw.setdefault("use_cftime", True)
     if engine == "rustytree":
         extra = {"group_filter": group_filter} if group_filter else {}
         return xr.open_datatree(session.store, engine="rustytree", **extra, **kw)
@@ -67,8 +68,12 @@ def open_store(
 def open_group(
     region: str, group_path: str, *, engine: str = "zarr", ref: str = "main", **kw: Any
 ) -> xr.Dataset:
-    """Open one group (``<source>/<experiment>/<product>``) as a Dataset."""
+    """Open one group (``<source>/<experiment>/<product>/<resolution>m``) as a Dataset.
+
+    Time decodes to cftime by default: the series run to 2300, past datetime64[ns].
+    """
     session = open_session(region, ref)
+    kw.setdefault("use_cftime", True)
     if engine == "rustytree":
         return xr.open_dataset(session.store, engine="rustytree", group=group_path, **kw)
     return xr.open_zarr(session.store, group=group_path, consolidated=False, **kw)

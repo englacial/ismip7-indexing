@@ -108,9 +108,9 @@ storage = icechunk.s3_storage(
 )
 repo = icechunk.Repository.open(
     storage,
-    authorize_virtual_chunk_access={
-        "s3://us-west-2.opendata.source.coop/ismip/": icechunk.s3_anonymous_credentials()
-    },
+    authorize_virtual_chunk_access=icechunk.containers_credentials(
+        {"s3://us-west-2.opendata.source.coop/ismip/": icechunk.s3_anonymous_credentials()}
+    ),
 )
 ds = xr.open_zarr(repo.readonly_session("main").store,
                   group="CESM2-WACCM/historical/SDBN1/8000m", consolidated=False)

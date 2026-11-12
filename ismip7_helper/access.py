@@ -56,7 +56,7 @@ def open_store(
 ) -> xr.DataTree:
     """Open a region's whole store as a DataTree with ``engine="zarr"`` or ``"rustytree"``."""
     session = open_session(region, ref)
-    kw.setdefault("use_cftime", True)
+    kw.setdefault("decode_times", xr.coders.CFDatetimeCoder(use_cftime=True))
     if engine == "rustytree":
         extra = {"group_filter": group_filter} if group_filter else {}
         return xr.open_datatree(session.store, engine="rustytree", **extra, **kw)
@@ -73,7 +73,7 @@ def open_group(
     Time decodes to cftime by default: the series run to 2300, past datetime64[ns].
     """
     session = open_session(region, ref)
-    kw.setdefault("use_cftime", True)
+    kw.setdefault("decode_times", xr.coders.CFDatetimeCoder(use_cftime=True))
     if engine == "rustytree":
         return xr.open_dataset(session.store, engine="rustytree", group=group_path, **kw)
     return xr.open_zarr(session.store, group=group_path, consolidated=False, **kw)

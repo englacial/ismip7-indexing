@@ -50,27 +50,26 @@ PREFIX = f"englacial/ismip7/icechunk-{REGION.lower()}"
 SOURCE = "s3://us-west-2.opendata.source.coop/ismip/"
 
 
-def open_repo():
-    storage = icechunk.s3_storage(bucket=BUCKET, prefix=PREFIX, region="us-west-2", anonymous=True)
-    return icechunk.Repository.open(
-        storage, authorize_virtual_chunk_access={SOURCE: icechunk.s3_anonymous_credentials()}
-    )
+# the series run to 2300, past datetime64[ns]: decode time with cftime
+TIME = xr.coders.CFDatetimeCoder(use_cftime=True)
 
 
-def read(a, tries=3):
+def read_time(a, tries=3):
     \"\"\"Seconds to load an xarray object into memory (retrying transient S3 errors).\"\"\"
     for attempt in range(tries):
         t0 = time.time()
         try:
             a.load()
             return time.time() - t0
-        except Exception:  # noqa: BLE001
+        except Exception:
             if attempt == tries - 1:
                 raise
             time.sleep(2)
 
 
-repo = open_repo()
+storage = icechunk.s3_storage(bucket=BUCKET, prefix=PREFIX, region="us-west-2", anonymous=True)
+containers = icechunk.containers_credentials({SOURCE: icechunk.s3_anonymous_credentials()})
+repo = icechunk.Repository.open(storage, authorize_virtual_chunk_access=containers)
 session = repo.readonly_session("main")
 print("store:", f"s3://{BUCKET}/{PREFIX}", "| snapshot", session.snapshot_id)
 """
@@ -97,23 +96,25 @@ print("using", GROUP)
 OPEN_FAMILY = """\
 # a family as a DataTree: one child per resolution, finest first in `multiscales`
 dt = xr.open_datatree(
-    session.store, group=FAMILY, engine="zarr", consolidated=False, use_cftime=True
+    session.store, group=FAMILY, engine="zarr", consolidated=False, decode_times=TIME
 )
 print(dt.attrs["multiscales"][0]["datasets"])
 print({child: dict(dt[child].ds.sizes) for child in dt.children})
 """
 
 OPEN_GROUP = """\
-# one resolution as a Dataset (use_cftime: the series run to 2300, past datetime64[ns])
-ds = xr.open_zarr(session.store, group=GROUP, consolidated=False, use_cftime=True)
+# one resolution as a Dataset
+ds = xr.open_zarr(session.store, group=GROUP, consolidated=False, decode_times=TIME)
 ds
 """
 
 GROUP_INFO = """\
-print("time:", ds.time.values[0], "->", ds.time.values[-1], f"({ds.sizes['time']} steps)")
-print("grid:", ds.attrs.get("ismip7_grid"), "| crs:", ds.crs.attrs.get("epsg_code"))
 var = next(v for v in ds.data_vars if ds[v].ndim >= 3)
-print(var, "chunks", ds[var].encoding.get("chunks"), "| actual_range", ds[var].attrs.get("actual_range"))
+tdim = ds[var].dims[0]  # `time`, or `time_annual` for the annual products
+print(tdim, ds[tdim].values[0], "->", ds[tdim].values[-1], f"({ds.sizes[tdim]} steps)")
+print("grid:", ds.attrs.get("ismip7_grid"), "| crs:", ds.crs.attrs.get("epsg_code"))
+print(var, "chunks", ds[var].encoding.get("chunks"))
+print("actual_range", ds[var].attrs.get("actual_range"))
 for n in ds.attrs.get("ismip7_notes", [])[:5]:
     print(" note:", n)
 """
@@ -121,18 +122,18 @@ for n in ds.attrs.get("ismip7_notes", [])[:5]:
 PLOT = """\
 import numpy as np
 
-field = ds[var].isel(time=0)
-secs = read(field)
+field = ds[var].isel({tdim: 0})
+secs = read_time(field)
 print(f"{var} t=0 read in {secs:.2f}s; finite cells {int(np.isfinite(field).sum())}")
 field.plot(x="x", y="y", robust=True, figsize=(6, 6));
 """
 
 SUBSET = """\
-n = min(12, ds.sizes["time"])
-box = ds[var].isel(time=slice(0, n), x=slice(100, 300), y=slice(100, 300))
-secs = read(box)
+n = min(12, ds.sizes[tdim])
+box = ds[var].isel({tdim: slice(0, n), "x": slice(100, 300), "y": slice(100, 300)})
+secs = read_time(box)
 print(f"{n} steps x 200 x 200 cells read in {secs:.2f}s")
-box.mean("time").plot(x="x", y="y", robust=True, figsize=(5, 5));
+box.mean(tdim).plot(x="x", y="y", robust=True, figsize=(5, 5));
 """
 
 TREE_FAMILY = """\
@@ -140,7 +141,7 @@ TREE_FAMILY = """\
 # metadata read per group (hundreds), so scope the tree to what you need
 t0 = time.time()
 dt = xr.open_datatree(
-    session.store, group=FAMILY, engine="zarr", consolidated=False, use_cftime=True
+    session.store, group=FAMILY, engine="zarr", consolidated=False, decode_times=TIME
 )
 print(f"{FAMILY}: {len(list(dt.subtree))} nodes in {time.time() - t0:.1f}s")
 for node in dt.subtree:
@@ -152,7 +153,7 @@ TREE_ESM = """\
 ESM = FAMILY.split("/")[0]
 t0 = time.time()
 dt = xr.open_datatree(
-    session.store, group=ESM, engine="zarr", consolidated=False, use_cftime=True
+    session.store, group=ESM, engine="zarr", consolidated=False, decode_times=TIME
 )
 leaves = [n.path for n in dt.subtree if n.data_vars]
 print(f"{ESM}: {len(leaves)} data groups in {time.time() - t0:.1f}s")
@@ -170,7 +171,7 @@ except ImportError:
 else:
     for engine in ("zarr", "rustytree"):
         t0 = time.time()
-        dt = xr.open_datatree(session.store, group=ESM, engine=engine, use_cftime=True)
+        dt = xr.open_datatree(session.store, group=ESM, engine=engine, decode_times=TIME)
         print(f"{engine:9s}: {sum(1 for _ in dt.subtree)} nodes in {time.time() - t0:.1f}s")
 """
 
@@ -180,20 +181,22 @@ import pandas as pd
 results = []
 for gp in levels[:10]:
     t0 = time.time()
-    sess = open_repo().readonly_session("main")
+    r = icechunk.Repository.open(storage, authorize_virtual_chunk_access=containers)
+    sess = r.readonly_session("main")
     t_open = round(time.time() - t0, 2)
     t0 = time.time()
-    d = xr.open_zarr(sess.store, group=gp, consolidated=False, use_cftime=True)
+    d = xr.open_zarr(sess.store, group=gp, consolidated=False, decode_times=TIME)
     t_group = round(time.time() - t0, 2)
     v = next(x for x in d.data_vars if d[x].ndim >= 3)
-    t_first = read(d[v].isel(time=0))
-    n = min(12, d.sizes["time"])
-    t_year = read(d[v].isel(time=slice(0, n)))
+    tdim = d[v].dims[0]
+    t_first = read_time(d[v].isel({tdim: 0}))
+    n = min(12, d.sizes[tdim])
+    t_year = read_time(d[v].isel({tdim: slice(0, n)}))
     results.append(
         {
             "group": gp,
             "var": v,
-            "steps": d.sizes["time"],
+            "steps": d.sizes[tdim],
             "chunks": d[v].encoding.get("chunks"),
             "open": t_open,
             "group_open": t_group,
@@ -218,7 +221,11 @@ def nb(title: str, cells: list[tuple[str, str]]) -> nbf.NotebookNode:
     n.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
     n.cells.append(nbf.v4.new_markdown_cell(f"# {title}\n\n{INTRO}"))
     for kind, src in cells:
-        n.cells.append(nbf.v4.new_markdown_cell(src) if kind == "md" else nbf.v4.new_code_cell(src))
+        n.cells.append(
+            nbf.v4.new_markdown_cell(src)
+            if kind == "md"
+            else nbf.v4.new_code_cell(src.rstrip("\n"))
+        )
     return n
 
 
@@ -229,8 +236,8 @@ NB1 = nb(
             "md",
             "## Open the repository\n\nThree things a reader must get right: the bucket and prefix, "
             "`anonymous=True` (otherwise icechunk looks for AWS credentials), and authorising the "
-            "virtual-chunk container, since icechunk refuses to follow references into a bucket you "
-            "have not allowed.",
+            "virtual-chunk container (wrapped by `containers_credentials`), since icechunk refuses to "
+            "follow references into a bucket you have not allowed.",
         ),
         ("code", SETUP),
         (

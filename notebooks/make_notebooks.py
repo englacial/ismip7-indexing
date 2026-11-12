@@ -137,74 +137,97 @@ print(f"{n} steps x 200 x 200 cells read in {secs:.2f}s")
 box.mean(tdim).plot(x="x", y="y", robust=True, figsize=(5, 5));
 """
 
-ENGINE = """\
-# rustytree (https://github.com/aladinor/rustytree, `pip install rustytree-xarray`) walks the
-# hierarchy concurrently in Rust and reads arrays through its own Rust path, so a whole
-# store opens in seconds; the zarr engine does the same work one group at a time
-if "rustytree" in xr.backends.list_engines():
-    TREE = {"engine": "rustytree"}
-else:
-    print("rustytree is not installed: using the zarr engine (slower on large trees)")
-    TREE = {"engine": "zarr", "consolidated": False}
-"""
+S2_OPEN = """\
+import icechunk
+import xarray as xr
 
-TREE_STORE = """\
-# the whole store as one lazy tree: metadata only, nothing read until asked
-t0 = time.time()
-tree = xr.open_datatree(session.store, decode_times=TIME, **TREE)
-data = [n for n in tree.subtree if n.data_vars]
-families = {
-    n.path.strip("/"): [d["path"] for d in n.attrs["multiscales"][0]["datasets"]]
-    for n in tree.subtree
-    if "multiscales" in n.attrs
-}
-print(
-    f"{REGION}: {len(data)} data groups in {len(families)} families, "
-    f"{tree.nbytes / 1e12:.1f} TB virtual, opened in {time.time() - t0:.1f}s"
+# the Antarctic store (Greenland: prefix="englacial/ismip7/icechunk-gris")
+storage = icechunk.s3_storage(
+    bucket="us-west-2.opendata.source.coop",
+    prefix="englacial/ismip7/icechunk-ais",
+    region="us-west-2",
+    anonymous=True,
 )
-for fam, lv in list(families.items())[:8]:
-    print(f"  {fam}: {lv}")
+# the store holds references into the ISMIP7 NetCDF files; icechunk follows them
+# only into a bucket you have authorised
+containers = icechunk.containers_credentials(
+    {"s3://us-west-2.opendata.source.coop/ismip/": icechunk.s3_anonymous_credentials()}
+)
+repo = icechunk.Repository.open(storage, authorize_virtual_chunk_access=containers)
+store = repo.readonly_session("main").store
+
+# the series run to 2300, past datetime64[ns]: decode time with cftime
+TIME = xr.coders.CFDatetimeCoder(use_cftime=True)
+# rustytree opens the whole store in seconds (concurrent walk in Rust); zarr works too
+ENGINE = "rustytree" if "rustytree" in xr.backends.list_engines() else "zarr"
 """
 
-TREE_FAMILY = """\
-# a family: one child per resolution, finest first in `multiscales`
-FAMILY = os.environ.get("ISMIP7_NB_FAMILY", "CESM2-WACCM/historical/SDBN1")
-family = tree[FAMILY]
-print(family.attrs["multiscales"][0]["datasets"])
-print({child: dict(family[child].ds.sizes) for child in family.children})
+S2_TREE = """\
+tree = xr.open_datatree(store, engine=ENGINE, consolidated=False, decode_times=TIME)
+list(tree.children)
 """
 
-TREE_GROUP = """\
-# one resolution as a Dataset (the coarsest level of the family)
-GROUP = f"{FAMILY}/{families[FAMILY][-1]}"
-ds = tree[GROUP].to_dataset()
-ds
+S2_FAMILY = """\
+# groups are ESM / experiment / family / resolution
+family = tree["CESM2-WACCM/historical/SDBN1"]
+family
 """
 
-TREE_BOTH = """\
-# both ice sheets as one tree: AIS and GrIS are separate Icechunk repositories, so open
-# each and nest them
-trees = {}
-for region in ("AIS", "GrIS"):
-    prefix = f"englacial/ismip7/icechunk-{region.lower()}"
-    stor = icechunk.s3_storage(bucket=BUCKET, prefix=prefix, region="us-west-2", anonymous=True)
-    sess = icechunk.Repository.open(stor, authorize_virtual_chunk_access=containers)
-    trees[region] = xr.open_datatree(sess.readonly_session("main").store, decode_times=TIME, **TREE)
-both = xr.DataTree.from_dict(trees)
-n_data = {r: sum(1 for n in t.subtree if n.data_vars) for r, t in trees.items()}
-print(sum(1 for _ in both.subtree), "nodes;", n_data)
-print(both["GrIS/CESM2-WACCM/historical/SDBN1"].attrs["multiscales"][0]["datasets"])
+S2_LEVELS = """\
+# the resolutions of a family, finest first (OME-NGFF multiscales)
+family.attrs["multiscales"][0]["datasets"]
 """
 
-TREE_FILTER = """\
-# scope a walk with a glob over full group paths (leading slash): e.g. every historical
-# 8 km group of this store (rustytree only; the zarr engine ignores group_filter)
-if TREE["engine"] == "rustytree":
-    t0 = time.time()
-    hist8 = xr.open_datatree(
-        session.store, group_filter="/*/historical/*/8000m", decode_times=TIME, **TREE
-    )
-    print([n.path for n in hist8.subtree if n.data_vars], f"in {time.time() - t0:.1f}s")
+S2_DATASETS = """\
+# one resolution is a Dataset
+ds8 = family["8000m"].to_dataset()
+ds2 = family["2000m"].to_dataset()
+ds8
+"""
+
+S2_VARIABLE = """\
+acabf = ds8["acabf"]
+print(acabf.attrs["long_name"], acabf.attrs["units"], "| colour range", acabf.attrs["actual_range"])
+print(acabf.time.values[0], "->", acabf.time.values[-1], f"({acabf.sizes['time']} steps)")
+"""
+
+S2_MULTIRES = """\
+# the same month at 8 km and 2 km: only that step's chunks are read (2 MB and 37 MB)
+import matplotlib.pyplot as plt
+
+fig, (ax8, ax2) = plt.subplots(1, 2, figsize=(12, 5.5))
+ds8["acabf"].isel(time=0).plot(ax=ax8, x="x", y="y", robust=True)
+ds2["acabf"].isel(time=0).plot(ax=ax2, x="x", y="y", robust=True)
+ax8.set_title(ds8.attrs["ismip7_grid"])
+ax2.set_title(ds2.attrs["ismip7_grid"]);
+"""
+
+S2_SUBSET = """\
+# a 400 km window at 2 km, averaged over the first year; nothing is read until .plot
+box = ds2["acabf"].isel(time=slice(0, 12), x=slice(1400, 1600), y=slice(1400, 1600))
+box.mean("time").plot(x="x", y="y", robust=True, figsize=(5, 5));
+"""
+
+S2_ALL = """\
+# every family in the store, with its resolutions
+for node in tree.subtree:
+    if "multiscales" in node.attrs:
+        print(node.path, [d["path"] for d in node.attrs["multiscales"][0]["datasets"]])
+"""
+
+S2_GRIS = """\
+# Greenland: a second store with the same layout (EPSG:3413 at 4 km and 1 km)
+storage_gris = icechunk.s3_storage(
+    bucket="us-west-2.opendata.source.coop",
+    prefix="englacial/ismip7/icechunk-gris",
+    region="us-west-2",
+    anonymous=True,
+)
+repo_gris = icechunk.Repository.open(storage_gris, authorize_virtual_chunk_access=containers)
+gris = xr.open_datatree(
+    repo_gris.readonly_session("main").store, engine=ENGINE, consolidated=False, decode_times=TIME
+)
+gris["CESM2-WACCM/historical/SDBN1"]
 """
 
 PROFILE = """\
@@ -316,41 +339,22 @@ NB1 = nb(
 NB2 = nb(
     "ISMIP7 forcing as a DataTree",
     [
-        (
-            "md",
-            "## Open the repository\n\nThree things a reader must get right: the bucket and prefix, "
-            "`anonymous=True` (otherwise icechunk looks for AWS credentials), and authorising the "
-            "virtual-chunk container (wrapped by `containers_credentials`), since icechunk refuses to "
-            "follow references into a bucket you have not allowed.",
-        ),
-        ("code", SETUP),
-        ("code", ENGINE),
-        (
-            "md",
-            "## The whole store as one tree\n\nGroups are `ESM/experiment/family/resolution`; a family "
-            "group carries OME-NGFF `multiscales` naming its resolution levels, finest first.",
-        ),
-        ("code", TREE_STORE),
-        ("md", "## A family, then one resolution as a Dataset"),
-        ("code", TREE_FAMILY),
-        ("code", TREE_GROUP),
-        ("code", GROUP_INFO),
-        (
-            "md",
-            "## Plot one month\n\nOnly the chunk(s) of that time step are fetched from the source file; "
-            "the fill value is masked to NaN.",
-        ),
-        ("code", PLOT),
-        (
-            "md",
-            "## Subset and reduce\n\nA spatial window and a mean over the first year; everything stays "
-            "lazy until it is loaded.",
-        ),
-        ("code", SUBSET),
-        ("md", "## Both ice sheets in one tree"),
-        ("code", TREE_BOTH),
-        ("md", "## Scope a walk with a glob"),
-        ("code", TREE_FILTER),
+        ("md", "## Open the store"),
+        ("code", S2_OPEN),
+        ("md", "## The whole store is one lazy tree"),
+        ("code", S2_TREE),
+        ("code", S2_FAMILY),
+        ("code", S2_LEVELS),
+        ("md", "## A resolution is a Dataset, a variable is a DataArray"),
+        ("code", S2_DATASETS),
+        ("code", S2_VARIABLE),
+        ("md", "## Two resolutions of the same field"),
+        ("code", S2_MULTIRES),
+        ("code", S2_SUBSET),
+        ("md", "## Everything in the store"),
+        ("code", S2_ALL),
+        ("md", "## Greenland"),
+        ("code", S2_GRIS),
     ],
 )
 

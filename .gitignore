@@ -14,3 +14,4 @@ run-*.json
 run-*.json.tmp
 big-groups-*.txt
 requirements-lambda.txt
+thomas_creds.md

@@ -237,6 +237,15 @@ gris = xr.open_datatree(
 gris["CESM2-WACCM/historical/SDBN1"]
 """
 
+S4_INSTALL = """\
+# the StratusGeo (CryoCloud) image has zarr, xarray and hvplot but not icechunk; this
+# installs into your home directory, which persists, so it is needed once per hub.
+# rustytree has no wheel for the image's Python 3.14 yet: if it fails, the notebook
+# falls back to the zarr engine (fine in us-west-2, where the bucket is)
+%pip install --quiet icechunk
+%pip install --quiet rustytree-xarray
+"""
+
 PROFILE = """\
 import pandas as pd
 
@@ -365,6 +374,30 @@ NB2 = nb(
     ],
 )
 
+NB4 = nb(
+    "ISMIP7 forcing on StratusGeo (CryoCloud)",
+    [
+        ("md", "## Install what the image lacks"),
+        ("code", S4_INSTALL),
+        ("md", "## Open the store"),
+        ("code", S2_OPEN),
+        ("md", "## The whole store is one lazy tree"),
+        ("code", S2_TREE),
+        ("code", S2_FAMILY),
+        ("code", S2_LEVELS),
+        ("md", "## A resolution is a Dataset, a variable is a DataArray"),
+        ("code", S2_DATASETS),
+        ("code", S2_VARIABLE),
+        ("md", "## Two resolutions of the same field"),
+        ("code", S2_MULTIRES),
+        ("code", S2_SUBSET),
+        ("md", "## Everything in the store"),
+        ("code", S2_ALL),
+        ("md", "## Greenland"),
+        ("code", S2_GRIS),
+    ],
+)
+
 NB3 = nb(
     "Performance profile",
     [
@@ -395,7 +428,12 @@ def main() -> int:
         "--execute", action="store_true", help="execute the notebooks in place (reads the store)"
     )
     args = ap.parse_args()
-    out = {"01_open_and_use.ipynb": NB1, "02_datatree.ipynb": NB2, "03_profile.ipynb": NB3}
+    out = {
+        "01_open_and_use.ipynb": NB1,
+        "02_datatree.ipynb": NB2,
+        "03_profile.ipynb": NB3,
+        "04_stratus.ipynb": NB4,
+    }
     for name, n in out.items():
         path = HERE / name
         if args.execute:

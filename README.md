@@ -84,7 +84,7 @@ dt = open_store("GrIS", engine="rustytree")               # whole store as a Dat
 ```
 
 `notebooks/` has executable examples (open and use, DataTree, performance
-profile) that open the public stores anonymously with icechunk, zarr and
+profile, and the same tour for StratusGeo/CryoCloud with its install cell) that open the public stores anonymously with icechunk, zarr and
 xarray only; `ISMIP7_NB_REGION` / `ISMIP7_NB_FAMILY` pick the region and
 family. Regenerate them with `python notebooks/make_notebooks.py` (add
 `--execute` to run them in place). They are sized for Binder

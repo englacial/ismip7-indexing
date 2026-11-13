@@ -27,7 +27,7 @@ concurrency:
 
 env:
   GRIDLOOK_REPO: espg/gridlook
-  GRIDLOOK_REF: 9a39433770a375d63f6fcf4d9a8601377d26a7b6 # upstream/levels-lod, 2026-11-12 (view-window loading, cached projection, range coalescing, Browse levels)
+  GRIDLOOK_REF: 1026be1a89fa4ea0a7c43e45b3e26dbd681921c8 # zoom-to-cursor, 2026-11-12 (levels-lod with the HEALPix view-window fix, plus the freely turning globe: cursor zoom, grab drag, compass, bearing)
   # Opened when the page is loaded without a hash (gridlook would otherwise
   # open its own CMIP6 example): the dataset, then "::name=value" parameters.
   DEFAULT_DATASET: icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/historical/SDBN1::varname=acabf

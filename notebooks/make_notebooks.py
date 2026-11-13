@@ -200,8 +200,8 @@ S2_MULTIRES = """\
 import holoviews as hv
 import hvplot.xarray  # noqa: F401
 
-month8 = ds8["acabf"].isel(time=0)
-month2 = ds2["acabf"].isel(time=0)
+month8 = ds8["acabf"].isel(time=1900)
+month2 = ds2["acabf"].isel(time=1900)
 date = str(month8.time.values)[:10]
 pane8 = month8.hvplot.image(x="x", y="y", rasterize=True, title=f"8 km, {date}")
 pane2 = month2.hvplot.image(x="x", y="y", rasterize=True, title=f"2 km, {date}")
@@ -222,6 +222,7 @@ for node in tree.subtree:
 """
 
 S2_GRIS = """\
+%%time
 # Greenland: a second store with the same layout (EPSG:3413 at 4 km and 1 km)
 storage_gris = icechunk.s3_storage(
     bucket="us-west-2.opendata.source.coop",

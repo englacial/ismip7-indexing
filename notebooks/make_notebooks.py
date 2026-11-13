@@ -30,8 +30,10 @@ the EPSG code and WKT. The group above the resolutions (the *family*, e.g.
 `CESM2-WACCM/ssp585/SDBN1`) carries an OME-NGFF `multiscales` attribute naming its
 levels, so a multiscale-aware reader (gridlook) opens the family as one pyramid.
 
-Reading needs no credentials. Everything below uses the standard tools, `icechunk`,
-`zarr` and `xarray`; nothing from `ismip7_helper`.
+Reading needs no credentials: `icechunk` opens the store, `xarray` reads it. The
+hierarchy is walked with [rustytree](https://github.com/aladinor/rustytree) when it is
+installed (a concurrent walk in Rust: the whole store in seconds), falling back to
+zarr-python, which does the same one group at a time.
 """
 
 SETUP = """\
@@ -163,6 +165,7 @@ ENGINE = "rustytree" if "rustytree" in xr.backends.list_engines() else "zarr"
 """
 
 S2_TREE = """\
+%%time
 tree = xr.open_datatree(store, engine=ENGINE, consolidated=False, decode_times=TIME)
 list(tree.children)
 """

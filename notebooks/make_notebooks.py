@@ -196,15 +196,15 @@ print(acabf.time.values[0], "->", acabf.time.values[-1], f"({acabf.sizes['time']
 
 S2_MULTIRES = """\
 # the same month at 8 km and 2 km, panes linked: zoom in and the 2 km detail appears
-# (rasterize draws at screen resolution and redraws on every zoom); one colour scale
+# (rasterize draws at screen resolution and redraws on every zoom)
 import holoviews as hv
 import hvplot.xarray  # noqa: F401
 
 month8 = ds8["acabf"].isel(time=0)
 month2 = ds2["acabf"].isel(time=0)
-colour = tuple(acabf.attrs["actual_range"])
-pane8 = month8.hvplot.image(x="x", y="y", rasterize=True, clim=colour, title="8 km")
-pane2 = month2.hvplot.image(x="x", y="y", rasterize=True, clim=colour, title="2 km")
+date = str(month8.time.values)[:10]
+pane8 = month8.hvplot.image(x="x", y="y", rasterize=True, title=f"8 km, {date}")
+pane2 = month2.hvplot.image(x="x", y="y", rasterize=True, title=f"2 km, {date}")
 (pane8 + pane2).opts(hv.opts.Image(cmap="viridis", frame_width=420, frame_height=420))
 """
 

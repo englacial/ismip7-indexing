@@ -254,7 +254,7 @@ def estimate_ranges(
     deadline = t0 + time_budget_s if time_budget_s is not None else None
     out = RangeResult(result.group_path, n_steps=n_steps)
     open_ = opener or open_source
-    for var in result.ds.data_vars:
+    for var in sorted(result.ds.data_vars):
         da = result.ds[var]
         axis = range_axis(da.dims)
         marr = da.data
@@ -320,7 +320,7 @@ def estimate_stored_ranges(
     deadline = t0 + time_budget_s if time_budget_s is not None else None
     out = RangeResult(group_path, n_steps=n_steps)
     ds = open_group(repo, group_path, branch, decode_times=False)
-    for var in ds.data_vars:
+    for var in sorted(ds.data_vars):
         da = ds[var]
         axis = range_axis(da.dims)
         if axis is None:

@@ -1,0 +1,5 @@
+#!/bin/bash
+# Panel (hvplot's renderer) serves its JavaScript through a Jupyter server extension; behind
+# Binder's hub the notebook asks for it at the wrong path. The CDN needs no extension.
+export PANEL_NOTEBOOK_RESOURCES=cdn
+exec "$@"

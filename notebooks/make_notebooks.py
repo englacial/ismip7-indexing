@@ -205,13 +205,13 @@ month2 = ds2["acabf"].isel(time=0)
 colour = tuple(acabf.attrs["actual_range"])
 pane8 = month8.hvplot.image(x="x", y="y", rasterize=True, clim=colour, title="8 km")
 pane2 = month2.hvplot.image(x="x", y="y", rasterize=True, clim=colour, title="2 km")
-(pane8 + pane2).opts(hv.opts.Image(frame_width=420, frame_height=420))
+(pane8 + pane2).opts(hv.opts.Image(cmap="viridis", frame_width=420, frame_height=420))
 """
 
 S2_SUBSET = """\
 # a 400 km window at 2 km, averaged over the first year; nothing is read until the plot asks
 box = ds2["acabf"].isel(time=slice(0, 12), x=slice(1400, 1600), y=slice(1400, 1600))
-box.mean("time").hvplot.image(x="x", y="y", frame_width=400, frame_height=400)
+box.mean("time").hvplot.image(x="x", y="y", cmap="viridis", frame_width=400, frame_height=400)
 """
 
 S2_ALL = """\

@@ -240,10 +240,12 @@ gris["CESM2-WACCM/historical/SDBN1"]
 S4_INSTALL = """\
 # the StratusGeo (CryoCloud) image has zarr, xarray and hvplot but not icechunk; this
 # installs into your home directory, which persists, so it is needed once per hub.
-# rustytree has no wheel for the image's Python 3.14 yet: if it fails, the notebook
-# falls back to the zarr engine (fine in us-west-2, where the bucket is)
-%pip install --quiet icechunk
-%pip install --quiet rustytree-xarray
+# rustytree is wheels-only here: a source build needs a Rust toolchain the hub lacks and
+# would run for a very long time before failing. With no wheel for the image's Python
+# (3.14 as of 2026-11) the install fails at once and the notebook uses the zarr engine,
+# which is fine in us-west-2, next to the bucket.
+%pip install icechunk
+%pip install --only-binary :all: rustytree-xarray
 """
 
 PROFILE = """\

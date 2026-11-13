@@ -1,0 +1,31 @@
+# Builds the notebooks' environment (binder/) with repo2docker and pushes it to GHCR, so a
+# JupyterHub that takes a custom image (StratusGeo/CryoCloud: "Custom image" in the
+# server options) can run the notebooks with icechunk and rustytree already installed.
+# The same image is what mybinder.org builds from binder/, so the two stay identical.
+name: Hub image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - binder/**
+      - notebooks/**
+      - .github/workflows/hub-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jupyterhub/repo2docker-action@master
+        with:
+          DOCKER_REGISTRY: ghcr.io
+          IMAGE_NAME: englacial/ismip7-indexing
+          DOCKER_USERNAME: ${{ github.actor }}
+          DOCKER_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          PUBLIC_REGISTRY_CHECK: "true"

@@ -36,7 +36,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-notebooks = ["jupyterlab", "ipykernel", "matplotlib", "nbformat", "nbclient"]
+notebooks = ["jupyterlab", "ipykernel", "matplotlib", "hvplot", "datashader", "nbformat", "nbclient"]
 index = [
     "pandas>=2.2",
     "pyarrow>=15",

@@ -192,20 +192,23 @@ print(acabf.time.values[0], "->", acabf.time.values[-1], f"({acabf.sizes['time']
 """
 
 S2_MULTIRES = """\
-# the same month at 8 km and 2 km: only that step's chunks are read (2 MB and 37 MB)
-import matplotlib.pyplot as plt
+# the same month at 8 km and 2 km, panes linked: zoom in and the 2 km detail appears
+# (rasterize draws at screen resolution and redraws on every zoom); one colour scale
+import holoviews as hv
+import hvplot.xarray  # noqa: F401
 
-fig, (ax8, ax2) = plt.subplots(1, 2, figsize=(12, 5.5))
-ds8["acabf"].isel(time=0).plot(ax=ax8, x="x", y="y", robust=True)
-ds2["acabf"].isel(time=0).plot(ax=ax2, x="x", y="y", robust=True)
-ax8.set_title(ds8.attrs["ismip7_grid"])
-ax2.set_title(ds2.attrs["ismip7_grid"]);
+month8 = ds8["acabf"].isel(time=0)
+month2 = ds2["acabf"].isel(time=0)
+colour = tuple(acabf.attrs["actual_range"])
+pane8 = month8.hvplot.image(x="x", y="y", rasterize=True, clim=colour, title="8 km")
+pane2 = month2.hvplot.image(x="x", y="y", rasterize=True, clim=colour, title="2 km")
+(pane8 + pane2).opts(hv.opts.Image(frame_width=420, frame_height=420))
 """
 
 S2_SUBSET = """\
-# a 400 km window at 2 km, averaged over the first year; nothing is read until .plot
+# a 400 km window at 2 km, averaged over the first year; nothing is read until the plot asks
 box = ds2["acabf"].isel(time=slice(0, 12), x=slice(1400, 1600), y=slice(1400, 1600))
-box.mean("time").plot(x="x", y="y", robust=True, figsize=(5, 5));
+box.mean("time").hvplot.image(x="x", y="y", frame_width=400, frame_height=400)
 """
 
 S2_ALL = """\

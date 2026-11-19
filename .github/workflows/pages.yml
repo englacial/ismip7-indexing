@@ -31,6 +31,8 @@ env:
   # Opened when the page is loaded without a hash (gridlook would otherwise
   # open its own CMIP6 example): the dataset, then "::name=value" parameters.
   DEFAULT_DATASET: icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-ais/CESM2-WACCM/historical/SDBN1::varname=acabf
+  # Opened by the gris/ page: the same viewer, on the Greenland store.
+  GRIS_DATASET: icechunk+https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/englacial/ismip7/icechunk-gris/CESM2-WACCM/historical/SDBN1::varname=acabf
 
 jobs:
   build:
@@ -73,6 +75,18 @@ jobs:
                  'location.pathname+location.search+"#"+' + repr(os.environ["DEFAULT_DATASET"]) + ')}</script>')
           assert html.count("<head>") == 1
           p.write_text(html.replace("<head>", "<head>" + tag, 1))
+          PY
+      - name: Greenland page
+        # gris/ hands over to the one viewer at the root, with the Greenland
+        # dataset as the hash unless the address already carries one.
+        run: |
+          python3 - <<'PY'
+          import os, pathlib
+          p = pathlib.Path("viewer/dist/gris/index.html")
+          p.parent.mkdir()
+          p.write_text('<!doctype html><meta charset="utf-8"><title>ISMIP7 Greenland</title>'
+                       '<script>location.replace("../"+(location.hash.length>1?location.hash:"#"+'
+                       + repr(os.environ["GRIS_DATASET"]) + '))</script>\n')
           PY
       - uses: actions/upload-pages-artifact@v3
         with:

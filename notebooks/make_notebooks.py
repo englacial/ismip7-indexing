@@ -197,6 +197,9 @@ print(acabf.time.values[0], "->", acabf.time.values[-1], f"({acabf.sizes['time']
 S2_MULTIRES = """\
 # the same month at 8 km and 2 km, panes linked: zoom in and the 2 km detail appears
 # (rasterize draws at screen resolution and redraws on every zoom)
+# under a JupyterHub (Binder, CryoCloud) Panel asks for its JavaScript at the wrong path
+# and shows "could not load resources from its Jupyter server extension"; the CDN avoids it
+%env PANEL_NOTEBOOK_RESOURCES=cdn
 import holoviews as hv
 import hvplot.xarray  # noqa: F401
 
@@ -238,12 +241,10 @@ gris["CESM2-WACCM/historical/SDBN1"]
 """
 
 S4_INSTALL = """\
-# the StratusGeo (CryoCloud) image has zarr, xarray and hvplot but not icechunk; this
-# installs into your home directory, which persists, so it is needed once per hub.
-# rustytree is wheels-only here: a source build needs a Rust toolchain the hub lacks and
-# would run for a very long time before failing. With no wheel for the image's Python
-# (3.14 as of 2026-11) the install fails at once and the notebook uses the zarr engine,
-# which is fine in us-west-2, next to the bucket.
+# the StratusGeo (CryoCloud) image has zarr, xarray and hvplot but not icechunk or
+# rustytree; this installs them into your home directory, which persists, so it is
+# needed once per hub. Wheels only: a source build of rustytree needs a Rust toolchain
+# the hub lacks and would run for a very long time before failing.
 %pip install icechunk
 %pip install --only-binary :all: rustytree-xarray
 """

@@ -140,6 +140,8 @@ box.mean(tdim).plot(x="x", y="y", robust=True, figsize=(5, 5));
 """
 
 S2_OPEN = """\
+import importlib.util
+
 import icechunk
 import xarray as xr
 
@@ -161,7 +163,7 @@ store = repo.readonly_session("main").store
 # the series run to 2300, past datetime64[ns]: decode time with cftime
 TIME = xr.coders.CFDatetimeCoder(use_cftime=True)
 # rustytree opens the whole store in seconds (concurrent walk in Rust); zarr works too
-ENGINE = "rustytree" if "rustytree" in xr.backends.list_engines() else "zarr"
+ENGINE = "rustytree" if importlib.util.find_spec("rustytree") else "zarr"
 """
 
 S2_TREE = """\

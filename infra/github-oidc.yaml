@@ -7,6 +7,8 @@
 # and LAMBDA_AWS_REGION (us-west-2); the Image workflow's push job assumes the
 # role through OIDC, pushes the arm64 image to ECR and updates the function.
 # The role can only push this function's image and update this function;
+# the trust policy names the exact sub claim (Subject), so redeploy the stack
+# if the repository is renamed or moved.
 # the stack (infra/lambda-stack.yaml) stays with infra/deploy.sh.
 AWSTemplateFormatVersion: "2010-09-09"
 Description: OIDC role that lets the ismip7-indexing GitHub workflow push the Lambda image and update the function
@@ -17,6 +19,14 @@ Parameters:
   Branch:
     Type: String
     Default: main
+  Subject:
+    Type: String
+    Default: repo:englacial@238580700/ismip7-indexing@1441263642:ref:refs/heads/main
+    Description: >-
+      The token's sub claim for pushes to the branch. Repositories created after
+      2026-07-15 issue the immutable form with the owner and repository ids
+      (gh api repos/<owner>/<repo>/actions/oidc/customization/sub prints the
+      prefix); older ones issue repo:<owner>/<repo>:ref:refs/heads/<branch>.
   FunctionName:
     Type: String
     Default: ismip7-virtualize
@@ -51,7 +61,7 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub repo:${Repository}:ref:refs/heads/${Branch}
+                token.actions.githubusercontent.com:sub: !Ref Subject
       Policies:
         - PolicyName: push-image-and-update-function
           PolicyDocument:

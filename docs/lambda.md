@@ -220,9 +220,11 @@ GitHub's OIDC provider (`aws-actions/configure-aws-credentials`), pushes
 and runs `aws lambda update-function-code --architectures arm64`. The role
 is created once by an account admin from `infra/github-oidc.yaml` (an
 `AWS::IAM::OIDCProvider` for `token.actions.githubusercontent.com`, or
-`CreateProvider=false` if the account has one, and a role trusting only
-`repo:englacial/ismip7-indexing:ref:refs/heads/main` with ECR push on this
-repository and `UpdateFunctionCode` on this function); its `RoleArn` output
+`CreateProvider=false` if the account has one, and a role trusting only this
+repository's `main` subject claim, which carries the owner and repository ids
+because the repository is newer than GitHub's 2026-07-15 switch to immutable
+subjects, with ECR push on this repository and `UpdateFunctionCode` on this
+function); its `RoleArn` output
 goes into the repository variables `LAMBDA_RELEASE_ROLE_ARN` and
 `LAMBDA_AWS_REGION`. The stack keeps an `Architecture` parameter: after the
 first CI push, update the stack once with `Architecture=arm64` and that image

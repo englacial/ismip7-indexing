@@ -13,12 +13,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: OIDC role that lets the ismip7-indexing GitHub workflow push the Lambda image and update the function
 Parameters:
-  Repository:
-    Type: String
-    Default: englacial/ismip7-indexing
-  Branch:
-    Type: String
-    Default: main
   Subject:
     Type: String
     Default: repo:englacial@238580700/ismip7-indexing@1441263642:ref:refs/heads/main
